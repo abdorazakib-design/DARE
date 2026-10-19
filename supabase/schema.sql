@@ -163,10 +163,10 @@ insert into operators (id, code, name) values
   ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJB', 'DJIBOUTI TELECOM');
 
 insert into landing_stations (id, code, name, country, x, y) values
-  ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJIBOUTI', 'DJIBOUTI', 'Djibouti', 120, 84),
-  ('6844c28f-3404-4bf2-8384-ff49c9312e1d', 'BOSASO', 'BOSASO', 'Somalia', 512, 78),
-  ('f6116f62-83ef-4798-b082-f51cbe2f972e', 'MOGADISHU', 'MOGADISHU', 'Somalia', 566, 214),
-  ('e4f8e690-272b-470f-a43a-ba7720b535c7', 'MOMBASA', 'MOMBASA', 'Kenya', 168, 328);
+  ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJB', 'DJIBOUTI', 'Djibouti', 120, 84),
+  ('6844c28f-3404-4bf2-8384-ff49c9312e1d', 'BOS', 'BOSASO', 'Somalia', 512, 78),
+  ('f6116f62-83ef-4798-b082-f51cbe2f972e', 'MOG', 'MOGADISHU', 'Somalia', 566, 214),
+  ('e4f8e690-272b-470f-a43a-ba7720b535c7', 'MOM', 'MOMBASA', 'Kenya', 168, 328);
 
 insert into bandwidths (id, label, value_gbps, sort_order) values
   ('3464f64f-4b8b-4903-9292-2222b80cb6ac', '10G', 10, 1),
