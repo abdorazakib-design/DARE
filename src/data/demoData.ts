@@ -154,63 +154,9 @@ export const demoCircuits: Circuit[] = [
   { id: id(0x0110), designation: 'CKTI-010', circuit_ref: 'DJT-MG-004', operator_id: OP[2].id, station_a_id: ST[0].id, station_b_id: ST[2].id, bandwidth_id: BW[0].id, interface_type_id: IT[0].id, quantity: 3, restoration_type_id: RT[0].id, status_id: SX[5].id, requested_by: 'S. Dubois', activated_at: '2026-07-14', created_at: '2026-07-12T15:20:00Z' },
 ]
 
-export const demoRequests: CircuitRequest[] = [
-  {
-    id: id(0x0201), request_type_id: demoRequestTypes[0].id, status_id: SX[1].id,
-    circuit_designation: 'CKTI-011', circuit_ref: 'SOM-MB-005',
-    details: { operator_id: OP[0].id, station_a_id: ST[2].id, station_b_id: ST[3].id, bandwidth_id: BW[0].id, interface_type_id: IT[0].id, quantity: 2, restoration_type_id: RT[0].id },
-    requested_by: 'A. Hosman', requested_date: '2026-06-03', created_at: '2026-06-03T09:12:00Z',
-  },
-  {
-    id: id(0x0202), request_type_id: demoRequestTypes[0].id, status_id: SX[3].id,
-    circuit_designation: 'CKTI-012', circuit_ref: 'HORM-DJI-003',
-    details: { operator_id: OP[1].id, station_a_id: ST[0].id, station_b_id: ST[3].id, bandwidth_id: BW[1].id, interface_type_id: IT[4].id, quantity: 1, restoration_type_id: RT[1].id },
-    requested_by: 'N. Farah', requested_date: '2026-07-18', created_at: '2026-07-18T11:30:00Z',
-  },
-  {
-    id: id(0x0203), request_type_id: demoRequestTypes[1].id, status_id: SX[4].id,
-    circuit_designation: 'CKTI-008', circuit_ref: 'SOM-DJI-004',
-    details: {}, requested_by: 'A. Hosman', requested_date: '2026-05-20', created_at: '2026-05-20T08:45:00Z',
-  },
-  {
-    id: id(0x0204), request_type_id: demoRequestTypes[4].id, status_id: SX[0].id,
-    circuit_designation: 'CKTI-002', circuit_ref: 'HORM-MG-001',
-    details: { new_interface_id: IT[4].id },
-    requested_by: 'N. Farah', requested_date: '2026-08-02', created_at: '2026-08-02T14:05:00Z',
-  },
-  {
-    id: id(0x0205), request_type_id: demoRequestTypes[2].id, status_id: SX[1].id,
-    circuit_designation: 'CKTI-004', circuit_ref: 'SOM-BSO-002',
-    details: { provider_id: demoProviders[1].id },
-    requested_by: 'M. Kiprop', requested_date: '2026-09-10', created_at: '2026-09-10T10:22:00Z',
-  },
-  {
-    id: id(0x0206), request_type_id: demoRequestTypes[5].id, status_id: SX[0].id,
-    circuit_designation: 'CKTI-005', circuit_ref: 'HORM-DJI-002',
-    details: { new_restoration_id: RT[0].id },
-    requested_by: 'L. Ahmed', requested_date: '2026-09-28', created_at: '2026-09-28T16:40:00Z',
-  },
-  {
-    id: id(0x0207), request_type_id: demoRequestTypes[3].id, status_id: SX[2].id,
-    circuit_designation: 'CKTI-010', circuit_ref: 'DJT-MG-004',
-    details: { new_designation: 'CKTI-010-R' },
-    requested_by: 'S. Dubois', requested_date: '2026-10-06', created_at: '2026-10-06T09:00:00Z',
-  },
-  {
-    id: id(0x0208), request_type_id: demoRequestTypes[0].id, status_id: SX[0].id,
-    circuit_designation: 'CKTI-013', circuit_ref: 'DJT-BSO-002',
-    details: { operator_id: OP[2].id, station_a_id: ST[0].id, station_b_id: ST[1].id, bandwidth_id: BW[1].id, interface_type_id: IT[5].id, quantity: 1, restoration_type_id: RT[0].id },
-    requested_by: 'M. Kiprop', requested_date: '2026-10-09', created_at: '2026-10-09T13:18:00Z',
-  },
-]
+export const demoRequests: CircuitRequest[] = []
 
-export const demoWorkOrders: WorkOrder[] = [
-  { id: id(0x0301), number: 'WO-2026-001', request_id: demoRequests[1].id, status_id: SX[9].id, assigned_to: 'M. Kiprop', created_at: '2026-07-19T08:30:00Z' },
-  { id: id(0x0302), number: 'WO-2026-002', request_id: demoRequests[2].id, status_id: SX[10].id, assigned_to: 'N. Farah', created_at: '2026-05-21T09:10:00Z' },
-  { id: id(0x0303), number: 'WO-2026-003', request_id: demoRequests[4].id, status_id: SX[9].id, assigned_to: 'N. Farah', created_at: '2026-09-11T14:44:00Z' },
-  { id: id(0x0304), number: 'WO-2026-004', request_id: demoRequests[6].id, status_id: SX[8].id, assigned_to: 'S. Dubois', created_at: '2026-10-07T10:05:00Z' },
-  { id: id(0x0305), number: 'WO-2026-005', request_id: demoRequests[0].id, status_id: SX[8].id, assigned_to: null, created_at: '2026-06-04T11:20:00Z' },
-]
+export const demoWorkOrders: WorkOrder[] = []
 
 export const demoDocuments: DocumentRow[] = [
   { id: id(0x0401), title: 'Mux Plan v3.2', category_id: demoDocCategories[0].id, url: '#', size: '2.4 MB', uploaded_by: 'N. Farah', created_at: '2026-09-15T10:00:00Z' },
@@ -230,22 +176,26 @@ export const demoUsers: AppUser[] = [
 
 export const demoMaintenance: MaintenanceEvent[] = [
   {
-    id: id(0x0601), title: 'Fiber cut on segment DJIBOUTI – BOSASO', station_id: ST[1].id, severity: 'critical',
+    id: id(0x0601), ticket_number: null, title: 'Fiber cut on segment DJIBOUTI – BOSASO', station_id: ST[1].id, severity: 'critical',
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
     status_id: SX[13].id, description: 'Anchor damage detected near Bosaso. Repair ship dispatched, splicing completed.',
     started_at: '2026-08-14', resolved_at: '2026-08-16', created_at: '2026-08-14T06:50:00Z',
   },
   {
-    id: id(0x0602), title: 'Optical span loss degradation DJIBOUTI – MOGADISHU', station_id: ST[0].id, severity: 'medium',
+    id: id(0x0602), ticket_number: null, title: 'Optical span loss degradation DJIBOUTI – MOGADISHU', station_id: ST[0].id, severity: 'medium',
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
     status_id: SX[12].id, description: 'OSNR degradation trend observed on 4 spans. Investigation ongoing.',
     started_at: '2026-09-30', resolved_at: null, created_at: '2026-09-30T11:25:00Z',
   },
   {
-    id: id(0x0603), title: 'Card upgrade at Mombasa NNOB', station_id: ST[3].id, severity: 'low',
+    id: id(0x0603), ticket_number: null, title: 'Card upgrade at Mombasa NNOB', station_id: ST[3].id, severity: 'low',
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
     status_id: SX[11].id, description: 'Planned amplifier card replacement during the next maintenance window.',
     started_at: '2026-11-01', resolved_at: null, created_at: '2026-10-01T09:00:00Z',
   },
   {
-    id: id(0x0604), title: 'Power anomaly at Bosaso NNOB', station_id: ST[1].id, severity: 'high',
+    id: id(0x0604), ticket_number: null, title: 'Power anomaly at Bosaso NNOB', station_id: ST[1].id, severity: 'high',
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
     status_id: SX[13].id, description: 'Rectifier failure — switched to redundant power feed.',
     started_at: '2026-06-12', resolved_at: '2026-06-13', created_at: '2026-06-12T17:40:00Z',
   },

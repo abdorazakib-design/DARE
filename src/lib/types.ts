@@ -129,8 +129,17 @@ export interface AppUser {
 
 export interface MaintenanceEvent {
   id: string
+  ticket_number: string | null
   title: string
   station_id: string
+  ticket_type: 'network_event' | 'service_request' | 'incident' | 'repair_and_return' | null
+  service_type: 'request_loopback' | 'performance_monitoring' | null
+  ne_creation_on: string | null
+  impact: 'traffic_affected' | 'no_traffic_affected' | 'traffic_threat' | 'service_affected' | 'service_threat' | 'non_service_affected' | null
+  circuit_id: string | null
+  brief_description: string | null
+  request_person: string | null
+  update_note: string | null
   severity: string
   status_id: string
   description: string | null
@@ -219,8 +228,17 @@ export interface ProviderInput {
 }
 
 export interface MaintenanceInput {
+  ticket_number?: string | null
   title: string
   station_id: string
+  ticket_type: 'network_event' | 'service_request' | 'incident' | 'repair_and_return' | null
+  service_type: 'request_loopback' | 'performance_monitoring' | null
+  ne_creation_on: string | null
+  impact: 'traffic_affected' | 'no_traffic_affected' | 'traffic_threat' | 'service_affected' | 'service_threat' | 'non_service_affected' | null
+  circuit_id: string | null
+  brief_description: string | null
+  request_person: string | null
+  update_note: string | null
   severity: string
   status_id: string
   description: string | null

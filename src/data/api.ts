@@ -37,6 +37,11 @@ import type {
 } from '@/lib/types'
 import { uid } from '@/lib/utils'
 
+let demoMaintenanceTicketSequence = demoMaintenance.reduce((max, event) => {
+  const match = /^TT(\d{5})$/.exec(event.ticket_number ?? '')
+  return match ? Math.max(max, Number(match[1])) : max
+}, 0)
+
 /**
  * Unified data access layer.
  * - Live mode: every call hits Supabase.
@@ -222,7 +227,10 @@ export async function fetchMaintenance(): Promise<MaintenanceEvent[]> {
 export async function createMaintenance(input: MaintenanceInput): Promise<MaintenanceEvent> {
   if (!isSupabaseConfigured) {
     await wait()
-    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), ...input }
+    const ticketNumber = input.ticket_type
+      ? `TT${String(++demoMaintenanceTicketSequence).padStart(5, '0')}`
+      : null
+    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), ...input, ticket_number: ticketNumber }
     demoMaintenance.unshift(row)
     return row
   }
