@@ -7,7 +7,7 @@ export default function CircuitSearch() {
   return (
     <div>
       <PageHeader title={t.circuits.searchTitle} subtitle={t.circuits.searchSubtitle} />
-      <CircuitExplorer enableFilters={false} />
+      <CircuitExplorer />
     </div>
   )
 }

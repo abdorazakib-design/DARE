@@ -6,7 +6,6 @@ import CircuitSearch from './pages/CircuitSearch'
 import CircuitRequest from './pages/CircuitRequest'
 import WorkOrders from './pages/WorkOrders'
 import ModifyCircuit from './pages/ModifyCircuit'
-import ActiveCircuits from './pages/ActiveCircuits'
 import Maintenance from './pages/Maintenance'
 import Reports from './pages/Reports'
 import Documents from './pages/Documents'
@@ -25,7 +24,6 @@ export function App() {
         <Route path="request" element={<CircuitRequest />} />
         <Route path="workorders" element={<WorkOrders />} />
         <Route path="modify" element={<ModifyCircuit />} />
-        <Route path="active" element={<ActiveCircuits />} />
         <Route path="maintenance" element={<Maintenance />} />
         <Route path="reports" element={<Reports />} />
         <Route path="documents" element={<Documents />} />

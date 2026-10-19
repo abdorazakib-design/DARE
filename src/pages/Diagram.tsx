@@ -146,7 +146,7 @@ export default function Diagram() {
             </div>
             <div className="border-t border-white/8 pt-2 text-xs text-slate-500">
               {t.diagram.capacityGbps}: <span className="font-medium text-neon-300">{fmtNumber(stationStats(station).gbps, lang)} {t.dashboard.gbps}</span>
-              <span className="ml-2 text-slate-600">· {t.circuits.activeTitle}: {stationStats(station).active}</span>
+              <span className="ml-2 text-slate-600">· {t.dashboard.activeCircuits}: {stationStats(station).active}</span>
             </div>
           </dl>
         ) : null}

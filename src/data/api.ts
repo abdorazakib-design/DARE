@@ -164,6 +164,63 @@ export async function createRequest(input: RequestInput): Promise<CircuitRequest
   return sbInsert<CircuitRequest>('circuit_requests', { ...input })
 }
 
+/**
+ * Creates the actual `circuits` row for an approved "New Circuit Activation"
+ * request. Called when a request is approved (or completed) so the circuit
+ * shows up in the Circuit List.
+ *
+ * Idempotent: does nothing when the request is not an activation, when its
+ * details are incomplete, or when a circuit with the same ref already exists
+ * (the circuits.circuit_ref unique constraint is the final safety net).
+ */
+export async function provisionCircuitFromRequest(
+  request: CircuitRequest,
+  activeStatusId: string,
+): Promise<Circuit | null> {
+  if (!request.circuit_ref || !request.circuit_designation) return null
+  const d = (request.details ?? {}) as Partial<Record<
+    'operator_id' | 'station_a_id' | 'station_b_id' | 'bandwidth_id' | 'interface_type_id' | 'restoration_type_id',
+    string
+  >> & { quantity?: number }
+  if (
+    !d.operator_id ||
+    !d.station_a_id ||
+    !d.station_b_id ||
+    !d.bandwidth_id ||
+    !d.interface_type_id ||
+    !d.restoration_type_id
+  ) {
+    return null // not an activation request, or incomplete details
+  }
+
+  // Skip if the circuit was already provisioned (e.g. approved then completed).
+  const existing = (await fetchCircuits()).find((c) => c.circuit_ref === request.circuit_ref)
+  if (existing) return null
+
+  const input: CircuitInput = {
+    designation: request.circuit_designation,
+    circuit_ref: request.circuit_ref,
+    operator_id: d.operator_id,
+    station_a_id: d.station_a_id,
+    station_b_id: d.station_b_id,
+    bandwidth_id: d.bandwidth_id,
+    interface_type_id: d.interface_type_id,
+    quantity: Number(d.quantity ?? 1) || 1,
+    restoration_type_id: d.restoration_type_id,
+    status_id: activeStatusId,
+    requested_by: request.requested_by,
+    activated_at: request.requested_date ?? null,
+  }
+  try {
+    return await createCircuit(input)
+  } catch (e) {
+    // Lost a race: another provision created the circuit first — fine.
+    const msg = e instanceof Error ? e.message : ''
+    if (/duplicate key|unique/i.test(msg)) return null
+    throw e
+  }
+}
+
 // ---------- Atomic circuit ID reservation ----------
 
 /** Demo-mode sequence bookkeeping (kept across calls, not persisted). */

@@ -356,9 +356,9 @@ end $$;
 -- ----------------------------------------------------------------------------
 -- The app calls next_circuit_ref(p_prefix) when submitting a "New Circuit
 -- Activation" request. The prefix already encodes the circuit "type", e.g.
--- SOMT-DJI-MOG-10G-100GE-R (operator / station A / station B / bandwidth /
+-- SOMT/DJI/MOG/10G/100GE/R (operator / station A / station B / bandwidth /
 -- interface / restoration), and the function appends a per-prefix sequence:
---   SOMT-DJI-MOG-10G-100GE-R-001, SOMT-DJI-MOG-10G-100GE-R-002, …
+--   SOMT/DJI/MOG/10G/100GE/R/001, SOMT/DJI/MOG/10G/100GE/R/002, …
 -- Atomicity: the INSERT ... ON CONFLICT DO UPDATE increments the counter in a
 -- single statement, so two concurrent submissions can never get the same ID.
 -- The unique constraint on circuits.circuit_ref remains the final safety net.
@@ -383,7 +383,7 @@ begin
     set last_seq = circuit_ref_counters.last_seq + 1
   returning last_seq into n;
 
-  return p_prefix || '-' || lpad(n::text, 3, '0');
+  return p_prefix || '/' || lpad(n::text, 3, '0');
 end;
 $$;
 

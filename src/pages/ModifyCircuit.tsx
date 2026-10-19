@@ -6,6 +6,7 @@ import { useData } from '@/data/DataProvider'
 import { fetchCircuits, updateCircuit } from '@/data/api'
 import type { Circuit, CircuitInput } from '@/lib/types'
 import { Button, Card, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
+import { Combobox } from '@/components/ui/combobox'
 import { useToast } from '@/components/ui/feedback'
 
 type FormState = Omit<CircuitInput, 'requested_by' | 'activated_at'>
@@ -75,15 +76,15 @@ export default function ModifyCircuit() {
       <PageHeader title={t.modify.title} subtitle={t.modify.subtitle} />
 
       <div className="glass mb-4 p-4">
-        <Select
+        {/* Type-to-search picker — no more dropdown scrolling. */}
+        <Combobox<Circuit>
           label={t.modify.pickCircuit}
-          placeholder={t.modify.pickCircuit}
-          options={(circuits ?? []).map((c) => ({
-            value: c.id,
-            label: `${c.designation} · ${c.circuit_ref} · ${maps?.operatorById.get(c.operator_id)?.name ?? ''}`,
-          }))}
+          placeholder={t.modify.pickCircuitPlaceholder}
+          items={circuits ?? []}
+          getItemLabel={(c) => `${c.designation} · ${c.circuit_ref} · ${maps?.operatorById.get(c.operator_id)?.name ?? ''}`}
+          getItemKey={(c) => c.id}
           value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
+          onChange={setSelectedId}
         />
       </div>
 

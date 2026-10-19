@@ -1,5 +1,4 @@
 import {
-  Activity,
   BarChart3,
   Cable,
   ClipboardList,
@@ -29,7 +28,6 @@ export const capacityItems: NavItem[] = [
   { path: '/request', labelKey: 'circuitRequest', icon: Send },
   { path: '/workorders', labelKey: 'workOrders', icon: ClipboardList },
   { path: '/modify', labelKey: 'modifyCircuit', icon: Pencil },
-  { path: '/active', labelKey: 'activeCircuits', icon: Activity },
 ]
 
 export const mainItems: NavItem[] = [{ path: '/', labelKey: 'dashboard', icon: Gauge }]

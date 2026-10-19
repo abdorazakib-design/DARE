@@ -1,35 +1,28 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Cable, Pencil } from 'lucide-react'
+import { Eye, Pencil, Search, X } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
 import { createRequest, fetchCircuits } from '@/data/api'
 import type { Circuit } from '@/lib/types'
-import { Button, EmptyState, Select, TextInput } from '@/components/ui/primitives'
+import { Button, EmptyState, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
 import { Modal, useToast } from '@/components/ui/feedback'
 import { StatusBadge } from '@/components/badges'
 import { fmtDate, fmtNumber, todayISO, cn } from '@/lib/utils'
 
-/** Shared circuit explorer — powers /circuits (search page) and /active (active only). */
-export function CircuitExplorer({
-  onlyActive = false,
-  /** true = show the operator/station/bandwidth/… dropdown filters; false = pure search page. */
-  enableFilters = true,
-}: {
-  onlyActive?: boolean
-  enableFilters?: boolean
-}) {
+/** How the search matches circuits: by their logical ID or by designation. */
+type SearchMode = 'designation' | 'ref'
+
+/** Circuit explorer for the /circuits search page. */
+export function CircuitExplorer() {
   const { t, lang, pick } = useI18n()
   const { refs, maps, version, bump } = useData()
   const { push } = useToast()
   const [circuits, setCircuits] = useState<Circuit[] | null>(null)
   const [query, setQuery] = useState('')
-  const [fOperator, setFOperator] = useState('')
-  const [fStation, setFStation] = useState('')
-  const [fBandwidth, setFBandwidth] = useState('')
-  const [fInterface, setFInterface] = useState('')
-  const [fStatus, setFStatus] = useState('')
+  const [mode, setMode] = useState<SearchMode>('designation')
+  const [showAll, setShowAll] = useState(false)
   const [selected, setSelected] = useState<Circuit | null>(null)
   const [deactivating, setDeactivating] = useState(false)
 
@@ -38,24 +31,16 @@ export function CircuitExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
 
+  /**
+   * Nothing is displayed until the user types a query (matched on the chosen
+   * mode only: circuit ID or designation) or presses "Show all".
+   */
   const filtered = useMemo(() => {
-    if (!circuits || !maps) return []
+    if (!circuits) return []
     const q = query.trim().toLowerCase()
-    return circuits.filter((c) => {
-      if (onlyActive && maps.statusById.get(c.status_id)?.code !== 'active') return false
-      if (fOperator && c.operator_id !== fOperator) return false
-      if (fBandwidth && c.bandwidth_id !== fBandwidth) return false
-      if (fInterface && c.interface_type_id !== fInterface) return false
-      if (fStatus && c.status_id !== fStatus) return false
-      if (fStation && c.station_a_id !== fStation && c.station_b_id !== fStation) return false
-      if (q) {
-        // Search matches ONLY the circuit ID (circuit_ref) and the designation.
-        const hay = `${c.designation} ${c.circuit_ref}`.toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      return true
-    })
-  }, [circuits, maps, query, fOperator, fStation, fBandwidth, fInterface, fStatus, onlyActive])
+    if (!q) return showAll ? circuits : []
+    return circuits.filter((c) => (mode === 'ref' ? c.circuit_ref : c.designation).toLowerCase().includes(q))
+  }, [circuits, query, mode, showAll])
 
   const totalGbps = useMemo(
     () => filtered.reduce((s, c) => s + (maps?.bandwidthById.get(c.bandwidth_id)?.value_gbps ?? 0) * c.quantity, 0),
@@ -112,46 +97,56 @@ export function CircuitExplorer({
     }
   }
 
-  const empty = <EmptyState icon={<Cable className="h-6 w-6" />} title={onlyActive ? t.circuits.emptyActive : t.circuits.emptySearch} />
+  const searching = query.trim().length > 0
+  const empty = (
+    <EmptyState
+      icon={<Search className="h-6 w-6" />}
+      title={searching ? t.circuits.emptySearch : t.circuits.searchPromptTitle}
+      hint={searching ? undefined : t.circuits.searchPromptHint}
+    />
+  )
+
+  const modeButton = (m: SearchMode, label: string) => (
+    <button
+      type="button"
+      onClick={() => setMode(m)}
+      className={cn(
+        'cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-medium transition-colors',
+        mode === m ? 'bg-neon-400/15 text-neon-300' : 'text-slate-400 hover:text-slate-200',
+      )}
+    >
+      {label}
+    </button>
+  )
 
   return (
     <>
-      <div className={cn('glass mb-4 grid gap-3 p-4', enableFilters ? 'sm:grid-cols-2 lg:grid-cols-6' : 'sm:grid-cols-1')}>
-        <TextInput placeholder={t.circuits.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
-        {enableFilters ? (
-          <>
-            <Select
-              placeholder={t.circuits.filterOperator}
-              options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))}
-              value={fOperator}
-              onChange={(e) => setFOperator(e.target.value)}
-            />
-            <Select
-              placeholder={t.circuits.filterStation}
-              options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: `${s.name} · ${s.country}` }))}
-              value={fStation}
-              onChange={(e) => setFStation(e.target.value)}
-            />
-            <Select
-              placeholder={t.circuits.filterBandwidth}
-              options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))}
-              value={fBandwidth}
-              onChange={(e) => setFBandwidth(e.target.value)}
-            />
-            <Select
-              placeholder={t.circuits.filterInterface}
-              options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))}
-              value={fInterface}
-              onChange={(e) => setFInterface(e.target.value)}
-            />
-            <Select
-              placeholder={t.circuits.filterStatus}
-              options={(maps?.statusesByScope('circuit') ?? []).map((s) => ({ value: s.id, label: pick(s) }))}
-              value={fStatus}
-              onChange={(e) => setFStatus(e.target.value)}
-            />
-          </>
-        ) : null}
+      <div className="glass mb-4 flex flex-wrap items-end gap-3 p-4">
+        <div>
+          <p className="mb-1.5 text-[13px] font-medium text-slate-300">{t.circuits.searchMode}</p>
+          <div className="flex rounded-xl border border-white/10 p-1">
+            {modeButton('designation', t.circuits.searchByDesignation)}
+            {modeButton('ref', t.circuits.searchById)}
+          </div>
+        </div>
+        <div className="min-w-56 flex-1">
+          <TextInput
+            placeholder={
+              mode === 'ref'
+                ? `${t.circuits.searchPlaceholder} — ${t.circuits.searchById}`
+                : `${t.circuits.searchPlaceholder} — ${t.circuits.searchByDesignation}`
+            }
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <Button
+          variant={showAll ? 'primary' : 'outline'}
+          icon={showAll ? <X className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+          onClick={() => setShowAll((v) => !v)}
+        >
+          {showAll ? t.circuits.hideAll : t.circuits.showAll}
+        </Button>
       </div>
 
       <DataTable
@@ -164,12 +159,14 @@ export function CircuitExplorer({
         initialSortKey="designation"
       />
 
-      <p className="mt-3 text-right text-xs text-slate-500">
-        {t.common.results(filtered.length)} · {t.circuits.capacityLabel}:{' '}
-        <span className="font-medium text-neon-300">
-          {fmtNumber(totalGbps, lang)} {t.dashboard.gbps}
-        </span>
-      </p>
+      {filtered.length > 0 ? (
+        <p className="mt-3 text-right text-xs text-slate-500">
+          {t.common.results(filtered.length)} · {t.circuits.capacityLabel}:{' '}
+          <span className="font-medium text-neon-300">
+            {fmtNumber(totalGbps, lang)} {t.dashboard.gbps}
+          </span>
+        </p>
+      ) : null}
 
       <Modal
         open={selected !== null}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, History, Inbox, Send, Wrench, XCircle } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, reserveCircuitRef, updateRequestStatus } from '@/data/api'
+import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, provisionCircuitFromRequest, reserveCircuitRef, updateRequestStatus } from '@/data/api'
 import { buildCircuitRefPrefix, formatCircuitRef, isCompletePrefix, nextSequence } from '@/lib/circuitRef'
 import { resolveSessionUser } from '@/lib/sessionUser'
 import type { AppUser } from '@/lib/types'
@@ -81,7 +81,7 @@ export default function CircuitRequest() {
 
   // Auto-generated circuit ID (activation requests): stable, self-describing
   // prefix derived from the selected operator / route / capacity / interface /
-  // restoration — e.g. SOMT-DJI-MOG-10G-100GE-R-001
+  // restoration — e.g. SOMT/DJI/MOG/10G/100GE/R/001
   const refPrefix = useMemo(() => {
     if (!isActivation || !maps) return ''
     const operator = maps.operatorById.get(form.operator_id)
@@ -216,6 +216,16 @@ export default function CircuitRequest() {
     setActing(true)
     try {
       await updateRequestStatus(r.id, st.id)
+      // Approving (or completing) a "New Circuit Activation" request provisions
+      // the real circuit so it appears in the Circuit List.
+      if (statusCode === 'approved' || statusCode === 'completed') {
+        const isActivation = maps?.requestTypeById.get(r.request_type_id)?.code === 'activation'
+        const active = refs?.statuses.find((s) => s.code === 'active' && s.scope === 'circuit')
+        if (isActivation && active) {
+          const created = await provisionCircuitFromRequest(r, active.id)
+          if (created) push(t.request.circuitProvisioned(created.circuit_ref))
+        }
+      }
       push(t.request.statusUpdated)
       if (selected?.id === r.id) setSelected({ ...r, status_id: st.id })
       bump()
