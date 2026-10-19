@@ -51,6 +51,65 @@ let demoMaintenanceTicketSequence = demoMaintenance.reduce((max, event) => {
 
 const nowISO = () => new Date().toISOString()
 const wait = (ms = 160) => new Promise<void>((r) => setTimeout(r, ms))
+const DEMO_MAINTENANCE_TICKETS_KEY = 'dare.demo.maintenance-tickets'
+
+let demoMaintenanceTicketsLoaded = false
+
+function isMaintenanceComment(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const comment = value as Record<string, unknown>
+  return typeof comment.text === 'string' && typeof comment.created_at === 'string'
+}
+
+function isMaintenanceTicket(value: unknown): value is MaintenanceEvent {
+  if (typeof value !== 'object' || value === null) return false
+  const ticket = value as Record<string, unknown>
+  return (
+    typeof ticket.id === 'string' &&
+    typeof ticket.ticket_number === 'string' &&
+    /^TT\d{5}$/.test(ticket.ticket_number) &&
+    typeof ticket.title === 'string' &&
+    typeof ticket.station_id === 'string' &&
+    typeof ticket.status_id === 'string' &&
+    typeof ticket.created_at === 'string' &&
+    Array.isArray(ticket.update_comments) &&
+    ticket.update_comments.every(isMaintenanceComment)
+  )
+}
+
+function loadDemoMaintenanceTickets(): void {
+  if (demoMaintenanceTicketsLoaded || typeof window === 'undefined') return
+  const stored = window.localStorage.getItem(DEMO_MAINTENANCE_TICKETS_KEY)
+  if (stored !== null) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(stored)
+    } catch {
+      throw new Error('Saved demo trouble tickets could not be read. Clear the dare.demo.maintenance-tickets browser storage entry and try again.')
+    }
+    if (!Array.isArray(parsed) || !parsed.every(isMaintenanceTicket)) {
+      throw new Error('Saved demo trouble tickets have an invalid format. Clear the dare.demo.maintenance-tickets browser storage entry and try again.')
+    }
+    const savedTickets = parsed as MaintenanceEvent[]
+    demoMaintenance.splice(
+      0,
+      demoMaintenance.length,
+      ...demoMaintenance.filter((event) => !event.ticket_number),
+      ...savedTickets,
+    )
+    demoMaintenanceTicketSequence = savedTickets.reduce((max, ticket) => {
+      const match = /^TT(\d{5})$/.exec(ticket.ticket_number ?? '')
+      return match ? Math.max(max, Number(match[1])) : max
+    }, demoMaintenanceTicketSequence)
+  }
+  demoMaintenanceTicketsLoaded = true
+}
+
+function persistDemoMaintenanceTickets(): void {
+  if (typeof window === 'undefined') return
+  const tickets = demoMaintenance.filter((event) => event.ticket_number !== null)
+  window.localStorage.setItem(DEMO_MAINTENANCE_TICKETS_KEY, JSON.stringify(tickets))
+}
 
 async function sbList<T>(table: string, order: string, ascending = true): Promise<T[]> {
   const { data, error } = await getSupabase().from(table).select('*').order(order, { ascending })
@@ -220,12 +279,16 @@ export async function deleteWorkOrder(id: string): Promise<void> {
 // ---------- Maintenance ----------
 
 export async function fetchMaintenance(): Promise<MaintenanceEvent[]> {
-  if (!isSupabaseConfigured) return wait().then(() => [...demoMaintenance])
+  if (!isSupabaseConfigured) {
+    loadDemoMaintenanceTickets()
+    return wait().then(() => [...demoMaintenance])
+  }
   return sbList<MaintenanceEvent>('maintenance_events', 'started_at', false)
 }
 
 export async function createMaintenance(input: MaintenanceInput): Promise<MaintenanceEvent> {
   if (!isSupabaseConfigured) {
+    loadDemoMaintenanceTickets()
     await wait()
     const ticketNumber = input.ticket_type
       ? `TT${String(++demoMaintenanceTicketSequence).padStart(5, '0')}`
@@ -238,6 +301,7 @@ export async function createMaintenance(input: MaintenanceInput): Promise<Mainte
       update_comments: input.update_comments ?? [],
     }
     demoMaintenance.unshift(row)
+    persistDemoMaintenanceTickets()
     return row
   }
   return sbInsert<MaintenanceEvent>('maintenance_events', { ...input })
@@ -245,10 +309,12 @@ export async function createMaintenance(input: MaintenanceInput): Promise<Mainte
 
 export async function updateMaintenance(id: string, input: Partial<MaintenanceInput>): Promise<MaintenanceEvent> {
   if (!isSupabaseConfigured) {
+    loadDemoMaintenanceTickets()
     await wait()
     const i = demoMaintenance.findIndex((m) => m.id === id)
     if (i === -1) throw new Error('Not found')
     demoMaintenance[i] = { ...demoMaintenance[i], ...input }
+    persistDemoMaintenanceTickets()
     return demoMaintenance[i]
   }
   return sbUpdate<MaintenanceEvent>('maintenance_events', id, { ...input })
@@ -256,9 +322,11 @@ export async function updateMaintenance(id: string, input: Partial<MaintenanceIn
 
 export async function deleteMaintenance(id: string): Promise<void> {
   if (!isSupabaseConfigured) {
+    loadDemoMaintenanceTickets()
     await wait()
     const i = demoMaintenance.findIndex((m) => m.id === id)
     if (i !== -1) demoMaintenance.splice(i, 1)
+    persistDemoMaintenanceTickets()
     return
   }
   return sbDelete('maintenance_events', id)

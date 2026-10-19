@@ -122,7 +122,7 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
     const rows = (events ?? []).filter((event) => {
       const statusCode = maps?.statusById.get(event.status_id)?.code
       if (maintenanceType === 'planned') return statusCode === 'planned'
-      if (maintenanceType === 'tickets' && view !== 'schedule') return statusCode !== 'planned'
+      if (maintenanceType === 'tickets' && view !== 'schedule') return statusCode !== 'planned' && statusCode !== 'resolved'
       return Boolean(event.started_at)
     })
     const filteredRows = ticketStatusFilter
@@ -309,6 +309,26 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
     }
   }
 
+  const closeTicket = async () => {
+    if (!editing || editing === 'new') return
+    const closedStatus = maps?.statusesByScope('maintenance').find((status) => status.code === 'resolved')
+    if (!closedStatus) {
+      push(t.om.closeStatusUnavailable, 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      await updateMaintenance(editing.id, { status_id: closedStatus.id })
+      push(t.om.ticketClosed)
+      setEditing(null)
+      bump()
+    } catch (e) {
+      push(e instanceof Error ? e.message : t.common.error, 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div>
       <PageHeader
@@ -328,7 +348,7 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
               label={t.circuits.filterStatus}
               placeholder={t.common.all}
               options={(maps?.statusesByScope('maintenance') ?? [])
-                .filter((status) => status.code !== 'planned')
+                .filter((status) => status.code !== 'planned' && status.code !== 'resolved')
                 .map((status) => ({ value: status.id, label: pick(status) }))}
               value={ticketStatusFilter}
               onChange={(e) => setTicketStatusFilter(e.target.value)}
@@ -377,7 +397,12 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
             <div className="flex gap-2">
               <Button
                 variant="ghost"
+                loading={maintenanceType === 'tickets' && editing !== 'new' && saving}
                 onClick={() => {
+                  if (maintenanceType === 'tickets' && editing && editing !== 'new') {
+                    void closeTicket()
+                    return
+                  }
                   setEditing(null)
                   if (isCreateView) navigate(`/maintenance/${maintenanceType}/details`)
                 }}

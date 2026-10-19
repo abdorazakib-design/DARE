@@ -148,6 +148,18 @@ export const fr: Translations = {
     submitted: (type: string) => `La demande « ${type} » a été transmise avec succès`,
     activationSubmitted: (designation: string, workOrder: string) =>
       `La nouvelle activation « ${designation} » a été soumise avec succès. Ordre de travail : ${workOrder}`,
+    activationConfirmationTitle: (designation: string) => `Demande d’activation de circuit : ${designation}`,
+    activationConfirmationMessage: (designation: string, workOrder: string | null) =>
+      workOrder
+        ? `L’ordre de travail ${workOrder} a été créé pour le circuit ${designation}.`
+        : `La demande d’activation du circuit « ${designation} » a été soumise avec succès et est en attente d’approbation.`,
+    activationRequestPending: 'En attente d’approbation',
+    activationApproved: 'Approuvée',
+    capacity: 'Capacité (quantité)',
+    workOrder: 'Ordre de travail',
+    sendEmail: 'Envoyer par e-mail',
+    print: 'Imprimer',
+    printPopupBlocked: 'Autorisez les fenêtres pop-up pour imprimer la confirmation d’activation.',
     activationSubmittedWithoutWorkOrder: (designation: string, reason: string) =>
       `La demande d’activation « ${designation} » a été enregistrée, mais la création de l’ordre de travail a échoué : ${reason}`,
     invalid: 'Veuillez remplir tous les champs requis',
@@ -299,6 +311,8 @@ export const fr: Translations = {
     newEvent: 'Consigner un événement',
     editEvent: 'Modifier l\'événement',
     ticketCreated: (number: string) => `Ticket ${number} créé`,
+    ticketClosed: 'Ticket clôturé',
+    closeStatusUnavailable: 'Le statut « clôturé » du ticket n’est pas configuré.',
     saved: 'Événement de maintenance enregistré',
     empty: 'Aucun événement de maintenance consigné',
   },

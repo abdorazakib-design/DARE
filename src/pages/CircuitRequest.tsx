@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Inbox, Send, Wrench, XCircle } from 'lucide-react'
+import { CheckCircle2, Inbox, Mail, Printer, Send, Wrench, XCircle } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
 import { createCircuit, createRequest, createWorkOrder, fetchCircuits, fetchRequests, fetchWorkOrders, updateRequestStatus } from '@/data/api'
@@ -29,6 +29,22 @@ interface FormState {
   new_restoration_id: string
 }
 
+interface ActivationConfirmation {
+  designation: string
+  circuitRef: string
+  requestingParty: string
+  stationA: string
+  stationB: string
+  bandwidth: string
+  capacity: number
+  interfaceType: string
+  restoration: string
+  requestedBy: string
+  requestedDate: string
+  workOrder: string | null
+  approved: boolean
+}
+
 const initialForm: FormState = {
   type_id: '',
   requested_by: '',
@@ -48,6 +64,12 @@ const initialForm: FormState = {
   new_restoration_id: '',
 }
 
+const designationCode = (code: string) =>
+  code.trim().toUpperCase() === 'DJIBOUTI TELECOM' ? 'DJB' : code.trim().slice(0, 3).toUpperCase()
+
+const escapeHtml = (value: string) =>
+  value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
+
 export default function CircuitRequest() {
   const { t, lang, pick } = useI18n()
   const { refs, maps, version, bump } = useData()
@@ -58,6 +80,7 @@ export default function CircuitRequest() {
   const [submitting, setSubmitting] = useState(false)
   const [selected, setSelected] = useState<CircuitRequest | null>(null)
   const [acting, setActing] = useState(false)
+  const [activationConfirmation, setActivationConfirmation] = useState<ActivationConfirmation | null>(null)
 
   useEffect(() => {
     fetchRequests().then(setRequests).catch((e: unknown) => push(e instanceof Error ? e.message : t.common.error, 'error'))
@@ -129,15 +152,16 @@ export default function CircuitRequest() {
     }
     setSubmitting(true)
     try {
-      let workOrderNumber: string | null = null
-      let workOrderStatusId: string | null = null
+      let activationFields: Omit<ActivationConfirmation, 'workOrder' | 'approved'> | null = null
       if (isActivation) {
         const operator = refs.operators.find((row) => row.id === form.operator_id)
+        const operatorCode = refs.operators.find((row) => row.id === form.operator_id)?.code
         const stationA = refs.stations.find((row) => row.id === form.station_a_id)
         const stationB = refs.stations.find((row) => row.id === form.station_b_id)
         const bandwidth = refs.bandwidths.find((row) => row.id === form.bandwidth_id)
         const interfaceType = refs.interfaceTypes.find((row) => row.id === form.interface_type_id)
-        if (!operator || !stationA || !stationB || !bandwidth || !interfaceType) {
+        const restoration = refs.restorationTypes.find((row) => row.id === form.restoration_type_id)
+        if (!operator || !operatorCode || !stationA || !stationB || !bandwidth || !interfaceType || !restoration) {
           throw new Error(t.request.invalid)
         }
 
@@ -145,28 +169,35 @@ export default function CircuitRequest() {
         const activationTypeIds = new Set(refs.requestTypes.filter((row) => row.code === 'activation').map((row) => row.id))
         const latestSequence = existingRequests.reduce((latest, request) => {
           if (!activationTypeIds.has(request.request_type_id)) return latest
-          const match = request.circuit_designation?.match(/\/(\d{5})$/)
+          const match = request.circuit_designation?.match(/\/(\d{4,5})$/)
           return match ? Math.max(latest, Number(match[1])) : latest
         }, 0)
-        if (latestSequence >= 99999) throw new Error(t.request.invalid)
+        if (latestSequence >= 9999) throw new Error(t.request.invalid)
 
         designation = [
-          operator.code,
-          stationA.code,
-          stationB.code,
+          designationCode(operatorCode),
+          designationCode(stationA.code),
+          designationCode(stationB.code),
           bandwidth.label,
           interfaceType.label,
-          String(latestSequence + 1).padStart(5, '0'),
+          String(latestSequence + 1).padStart(4, '0'),
         ].join('/')
-
-        const workOrders = await fetchWorkOrders()
-        workOrderNumber = nextWorkOrderNumber(workOrders.map((order) => order.number))
-        if (!workOrderNumber) throw new Error(t.request.invalid)
-        workOrderStatusId = refs.statuses.find((status) => status.code === 'open' && status.scope === 'work_order')?.id ?? null
-        if (!workOrderStatusId) throw new Error(t.request.invalid)
+        activationFields = {
+          designation,
+          circuitRef: ref ?? '',
+          requestingParty: operator.name,
+          stationA: stationA.name,
+          stationB: stationB.name,
+          bandwidth: bandwidth.label,
+          capacity: form.quantity,
+          interfaceType: interfaceType.label,
+          restoration: restoration.label,
+          requestedBy: form.requested_by.trim(),
+          requestedDate: form.requested_date,
+        }
       }
 
-      const createdRequest = await createRequest({
+      await createRequest({
         request_type_id: type.id,
         status_id: pending.id,
         circuit_designation: designation,
@@ -175,22 +206,8 @@ export default function CircuitRequest() {
         requested_by: form.requested_by.trim(),
         requested_date: form.requested_date,
       })
-      if (isActivation && designation && workOrderNumber && workOrderStatusId) {
-        try {
-          await createWorkOrder({
-            number: workOrderNumber,
-            request_id: createdRequest.id,
-            status_id: workOrderStatusId,
-            assigned_to: null,
-          })
-          push(t.request.activationSubmitted(designation, workOrderNumber))
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : t.common.error
-          push(t.request.activationSubmittedWithoutWorkOrder(designation, reason), 'error')
-          setForm({ ...initialForm, requested_date: todayISO(), requested_by: form.requested_by })
-          bump()
-          return
-        }
+      if (isActivation && activationFields) {
+        setActivationConfirmation({ ...activationFields, workOrder: null, approved: false })
       } else {
         push(t.request.submitted(pick(type)))
       }
@@ -224,6 +241,53 @@ export default function CircuitRequest() {
       push(e instanceof Error ? e.message : t.common.error, 'error')
     } finally {
       setActing(false)
+    }
+  }
+
+  const ensureActivationWorkOrder = async (r: CircuitRequest): Promise<string> => {
+    if (!refs) throw new Error(t.common.error)
+    const orders = await fetchWorkOrders()
+    const existing = orders.find((order) => order.request_id === r.id)
+    if (existing) return existing.number
+
+    const open = refs.statuses.find((status) => status.code === 'open' && status.scope === 'work_order')
+    const number = nextWorkOrderNumber(orders.map((order) => order.number))
+    if (!open || !number) throw new Error(t.request.invalid)
+    await createWorkOrder({ number, request_id: r.id, status_id: open.id, assigned_to: null })
+    return number
+  }
+
+  const activationConfirmationFor = (
+    r: CircuitRequest,
+    workOrder: string | null,
+    approved: boolean,
+  ): ActivationConfirmation => {
+    if (!refs) throw new Error(t.common.error)
+    const details = r.details
+    const operator = typeof details.operator_id === 'string' ? maps?.operatorById.get(details.operator_id) : undefined
+    const stationA = typeof details.station_a_id === 'string' ? maps?.stationById.get(details.station_a_id) : undefined
+    const stationB = typeof details.station_b_id === 'string' ? maps?.stationById.get(details.station_b_id) : undefined
+    const bandwidth = typeof details.bandwidth_id === 'string' ? maps?.bandwidthById.get(details.bandwidth_id) : undefined
+    const interfaceType = typeof details.interface_type_id === 'string' ? maps?.interfaceById.get(details.interface_type_id) : undefined
+    const restoration = typeof details.restoration_type_id === 'string' ? maps?.restorationById.get(details.restoration_type_id) : undefined
+    const quantity = details.quantity
+    if (!operator || !stationA || !stationB || !bandwidth || !interfaceType || !restoration || typeof quantity !== 'number') {
+      throw new Error(t.request.invalid)
+    }
+    return {
+      designation: r.circuit_designation ?? r.circuit_ref ?? '',
+      circuitRef: r.circuit_ref ?? '',
+      requestingParty: operator.name,
+      stationA: stationA.name,
+      stationB: stationB.name,
+      bandwidth: bandwidth.label,
+      capacity: quantity,
+      interfaceType: interfaceType.label,
+      restoration: restoration.label,
+      requestedBy: r.requested_by,
+      requestedDate: r.requested_date ?? r.created_at,
+      workOrder,
+      approved,
     }
   }
 
@@ -297,12 +361,22 @@ export default function CircuitRequest() {
     if (!st) return
     setActing(true)
     try {
+      const isActivationRequest = maps?.requestTypeById.get(r.request_type_id)?.code === 'activation'
+      let activationWorkOrder: string | null = null
+      if (statusCode === 'approved' && isActivationRequest) {
+        activationWorkOrder = await ensureActivationWorkOrder(r)
+      }
       if (statusCode === 'completed' && maps?.requestTypeById.get(r.request_type_id)?.code === 'activation') {
         await createActivationCircuit(r)
       }
       await updateRequestStatus(r.id, st.id)
-      push(t.request.statusUpdated)
-      if (selected?.id === r.id) setSelected({ ...r, status_id: st.id })
+      if (statusCode === 'approved' && isActivationRequest && activationWorkOrder) {
+        setActivationConfirmation(activationConfirmationFor(r, activationWorkOrder, true))
+        setSelected(null)
+      } else {
+        push(t.request.statusUpdated)
+        if (selected?.id === r.id) setSelected({ ...r, status_id: st.id })
+      }
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -370,6 +444,51 @@ export default function CircuitRequest() {
 
   const selectedStatus = selected ? maps?.statusById.get(selected.status_id)?.code : undefined
   const canDecide = selectedStatus === 'pending' || selectedStatus === 'in-review'
+  const confirmationRows = activationConfirmation
+    ? [
+        [t.request.circuitRef, activationConfirmation.circuitRef],
+        [t.request.operator, activationConfirmation.requestingParty],
+        [t.request.stationA, activationConfirmation.stationA],
+        [t.request.stationB, activationConfirmation.stationB],
+        [t.request.bandwidth, activationConfirmation.bandwidth],
+        [t.request.capacity, String(activationConfirmation.capacity)],
+        [t.request.interface, activationConfirmation.interfaceType],
+        [t.request.restoration, activationConfirmation.restoration],
+        [t.request.requestedBy, activationConfirmation.requestedBy],
+        [t.request.requestedDate, fmtDate(activationConfirmation.requestedDate, lang)],
+        ...(activationConfirmation.workOrder ? [[t.request.workOrder, activationConfirmation.workOrder]] : []),
+        [t.common.status, activationConfirmation.approved ? t.request.activationApproved : t.request.activationRequestPending],
+      ]
+    : []
+
+  const sendActivationEmail = () => {
+    if (!activationConfirmation) return
+    const subject = t.request.activationConfirmationTitle(activationConfirmation.designation)
+    const body = [
+      t.request.activationConfirmationMessage(activationConfirmation.designation, activationConfirmation.workOrder),
+      '',
+      ...confirmationRows.map(([label, value]) => `${label}: ${value}`),
+    ].join('\n')
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  }
+
+  const printActivationConfirmation = () => {
+    if (!activationConfirmation) return
+    const printWindow = window.open('', '_blank', 'width=800,height=700')
+    if (!printWindow) {
+      push(t.request.printPopupBlocked, 'error')
+      return
+    }
+    const rows = confirmationRows
+      .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
+      .join('')
+    printWindow.document.write(
+      `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>${escapeHtml(t.request.activationConfirmationTitle(activationConfirmation.designation))}</title><style>body{font:16px Arial,sans-serif;color:#111;margin:40px}h1{font-size:22px}table{border-collapse:collapse;width:100%;margin-top:24px}th,td{border:1px solid #bbb;padding:10px;text-align:left}th{width:35%;background:#f2f2f2}</style></head><body><h1>${escapeHtml(t.request.activationConfirmationTitle(activationConfirmation.designation))}</h1><p>${escapeHtml(t.request.activationConfirmationMessage(activationConfirmation.designation, activationConfirmation.workOrder))}</p><table>${rows}</table></body></html>`,
+    )
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
+  }
 
   return (
     <div>
@@ -461,6 +580,45 @@ export default function CircuitRequest() {
       </div>
 
       <Modal
+        open={activationConfirmation !== null}
+        onClose={() => setActivationConfirmation(null)}
+        title={activationConfirmation ? t.request.activationConfirmationTitle(activationConfirmation.designation) : t.request.history}
+        size="lg"
+        footer={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" icon={<Printer className="h-3.5 w-3.5" />} onClick={printActivationConfirmation}>
+              {t.request.print}
+            </Button>
+            <Button variant="outline" size="sm" icon={<Mail className="h-3.5 w-3.5" />} onClick={sendActivationEmail}>
+              {t.request.sendEmail}
+            </Button>
+            <Button variant="primary" size="sm" onClick={() => setActivationConfirmation(null)}>
+              {t.common.close}
+            </Button>
+          </div>
+        }
+      >
+        {activationConfirmation ? (
+          <div>
+            <div className="mb-5 flex items-start gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
+              <p className="text-sm leading-relaxed text-slate-200">
+                {t.request.activationConfirmationMessage(activationConfirmation.designation, activationConfirmation.workOrder)}
+              </p>
+            </div>
+            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              {confirmationRows.map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">{label}</dt>
+                  <dd className="mt-1 break-words text-sm text-slate-100">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
         open={selected !== null}
         onClose={() => setSelected(null)}
         title={selected ? pick(maps?.requestTypeById.get(selected.request_type_id)) : t.request.history}
@@ -480,9 +638,11 @@ export default function CircuitRequest() {
               ) : null}
               {selectedStatus === 'approved' ? (
                 <>
-                  <Button variant="outline" size="sm" loading={acting} icon={<Wrench className="h-3.5 w-3.5" />} onClick={() => void createWO(selected)}>
-                    {t.request.createWorkOrder}
-                  </Button>
+                  {maps?.requestTypeById.get(selected.request_type_id)?.code !== 'activation' ? (
+                    <Button variant="outline" size="sm" loading={acting} icon={<Wrench className="h-3.5 w-3.5" />} onClick={() => void createWO(selected)}>
+                      {t.request.createWorkOrder}
+                    </Button>
+                  ) : null}
                   <Button variant="primary" size="sm" loading={acting} onClick={() => void setStatus(selected, 'completed')}>
                     {t.request.complete}
                   </Button>

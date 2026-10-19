@@ -146,6 +146,18 @@ export const en = {
     submitted: (type: string) => `Request "${type}" submitted successfully`,
     activationSubmitted: (designation: string, workOrder: string) =>
       `New circuit activation "${designation}" submitted successfully. Work order: ${workOrder}`,
+    activationConfirmationTitle: (designation: string) => `Circuit Activation Request for Circuit ${designation}`,
+    activationConfirmationMessage: (designation: string, workOrder: string | null) =>
+      workOrder
+        ? `Work order ${workOrder} has been created for circuit ${designation}.`
+        : `The circuit activation request for "${designation}" was submitted successfully and is pending approval.`,
+    activationRequestPending: 'Pending approval',
+    activationApproved: 'Approved',
+    capacity: 'Capacity (quantity)',
+    workOrder: 'Work order',
+    sendEmail: 'Send email',
+    print: 'Print',
+    printPopupBlocked: 'Allow pop-ups to print the activation confirmation.',
     activationSubmittedWithoutWorkOrder: (designation: string, reason: string) =>
       `Activation request "${designation}" was saved, but work order creation failed: ${reason}`,
     invalid: 'Please fill in all required fields',
@@ -297,6 +309,8 @@ export const en = {
     newEvent: 'Log Event',
     editEvent: 'Edit Event',
     ticketCreated: (number: string) => `Ticket ${number} created`,
+    ticketClosed: 'Ticket closed',
+    closeStatusUnavailable: 'The closed ticket status is not configured.',
     saved: 'Maintenance event saved',
     empty: 'No maintenance events logged',
   },
