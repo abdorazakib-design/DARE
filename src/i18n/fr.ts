@@ -288,7 +288,7 @@ export const fr: Translations = {
     circuitId: 'ID du circuit',
     raisedBy: 'Signalé par',
     raisedByPlaceholder: 'Sélectionnez CLS ou NOC',
-    comment: 'Commentaire',
+    newComment: 'Nouveau commentaire',
     severity: 'Gravité',
     startedAt: 'Débuté le',
     resolvedAt: 'Résolu le',

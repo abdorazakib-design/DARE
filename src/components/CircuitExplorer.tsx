@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Cable, Pencil } from 'lucide-react'
+import { Cable, Pencil, Search } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
 import { createRequest, fetchCircuits } from '@/data/api'
@@ -18,6 +18,9 @@ export function CircuitExplorer({ onlyActive = false }: { onlyActive?: boolean }
   const { push } = useToast()
   const [circuits, setCircuits] = useState<Circuit[] | null>(null)
   const [query, setQuery] = useState('')
+  const [appliedQuery, setAppliedQuery] = useState('')
+  const [searchField, setSearchField] = useState('')
+  const [appliedSearchField, setAppliedSearchField] = useState('')
   const [fOperator, setFOperator] = useState('')
   const [fStation, setFStation] = useState('')
   const [fBandwidth, setFBandwidth] = useState('')
@@ -33,7 +36,7 @@ export function CircuitExplorer({ onlyActive = false }: { onlyActive?: boolean }
 
   const filtered = useMemo(() => {
     if (!circuits || !maps) return []
-    const q = query.trim().toLowerCase()
+    const q = appliedQuery.trim().toLowerCase()
     return circuits.filter((c) => {
       if (onlyActive && maps.statusById.get(c.status_id)?.code !== 'active') return false
       if (fOperator && c.operator_id !== fOperator) return false
@@ -42,12 +45,17 @@ export function CircuitExplorer({ onlyActive = false }: { onlyActive?: boolean }
       if (fStatus && c.status_id !== fStatus) return false
       if (fStation && c.station_a_id !== fStation && c.station_b_id !== fStation) return false
       if (q) {
-        const hay = `${c.designation} ${c.circuit_ref} ${maps.operatorById.get(c.operator_id)?.name ?? ''} ${maps.stationById.get(c.station_a_id)?.name ?? ''} ${maps.stationById.get(c.station_b_id)?.name ?? ''}`.toLowerCase()
+        const hay =
+          appliedSearchField === 'id'
+            ? c.circuit_ref.toLowerCase()
+            : appliedSearchField === 'designation'
+              ? c.designation.toLowerCase()
+              : `${c.designation} ${c.circuit_ref}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
     })
-  }, [circuits, maps, query, fOperator, fStation, fBandwidth, fInterface, fStatus, onlyActive])
+  }, [circuits, maps, appliedQuery, appliedSearchField, fOperator, fStation, fBandwidth, fInterface, fStatus, onlyActive])
 
   const totalGbps = useMemo(
     () => filtered.reduce((s, c) => s + (maps?.bandwidthById.get(c.bandwidth_id)?.value_gbps ?? 0) * c.quantity, 0),
@@ -108,8 +116,36 @@ export function CircuitExplorer({ onlyActive = false }: { onlyActive?: boolean }
 
   return (
     <>
-      <div className="glass mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <TextInput placeholder={t.circuits.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
+      <div className="glass mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-7">
+        <form
+          className="flex min-w-0 gap-2 lg:col-span-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setAppliedQuery(query)
+            setAppliedSearchField(searchField)
+          }}
+        >
+          <Select
+            wrapClassName="min-w-0 flex-1"
+            placeholder={t.circuits.filterCircuit}
+            options={[
+              { value: 'id', label: t.circuits.ref },
+              { value: 'designation', label: t.circuits.designation },
+            ]}
+            value={searchField}
+            onChange={(e) => setSearchField(e.target.value)}
+          />
+          <TextInput
+            className="min-w-0"
+            wrapClassName="min-w-0 flex-1"
+            placeholder={t.circuits.searchPlaceholder}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Button type="submit" className="shrink-0" icon={<Search className="h-4 w-4" />}>
+            {t.circuits.searchButton}
+          </Button>
+        </form>
         <Select
           placeholder={t.circuits.filterOperator}
           options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))}

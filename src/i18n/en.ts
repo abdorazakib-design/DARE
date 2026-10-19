@@ -286,7 +286,7 @@ export const en = {
     circuitId: 'Circuit ID',
     raisedBy: 'Raised By',
     raisedByPlaceholder: 'Select CLS or NOC',
-    comment: 'Comment',
+    newComment: 'New comment',
     severity: 'Severity',
     startedAt: 'Started',
     resolvedAt: 'Resolved',

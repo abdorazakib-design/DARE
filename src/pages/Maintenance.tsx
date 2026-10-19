@@ -4,7 +4,7 @@ import { Plus, Trash2, Wrench } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
 import { createMaintenance, deleteMaintenance, fetchMaintenance, updateMaintenance } from '@/data/api'
-import type { MaintenanceEvent, MaintenanceInput } from '@/lib/types'
+import type { MaintenanceComment, MaintenanceEvent, MaintenanceInput } from '@/lib/types'
 import { Button, EmptyState, PageHeader, Select, TextArea, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
 import { ConfirmDialog, Modal, useToast } from '@/components/ui/feedback'
@@ -47,7 +47,7 @@ interface FormState {
   circuit_id: string
   brief_description: string
   raised_by: (typeof RAISED_BY_OPTIONS)[number] | ''
-  update_note: string
+  new_comment: string
   severity: string
   status_id: string
   description: string
@@ -65,7 +65,7 @@ const emptyForm = (stationId: string, statusId: string): FormState => ({
   circuit_id: '',
   brief_description: '',
   raised_by: '',
-  update_note: '',
+  new_comment: '',
   severity: 'low',
   status_id: statusId,
   description: '',
@@ -81,6 +81,7 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
   const { refs, maps, version, bump } = useData()
   const { push } = useToast()
   const [events, setEvents] = useState<MaintenanceEvent[] | null>(null)
+  const [ticketStatusFilter, setTicketStatusFilter] = useState('')
   const [editing, setEditing] = useState<MaintenanceEvent | 'new' | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm('', ''))
   const [saving, setSaving] = useState(false)
@@ -124,9 +125,12 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
       if (maintenanceType === 'tickets' && view !== 'schedule') return statusCode !== 'planned'
       return Boolean(event.started_at)
     })
-    if (view === 'schedule') rows.sort((a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''))
-    return rows
-  }, [events, maps, maintenanceType, view])
+    const filteredRows = ticketStatusFilter
+      ? rows.filter((event) => event.status_id === ticketStatusFilter)
+      : rows
+    if (view === 'schedule') filteredRows.sort((a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''))
+    return filteredRows
+  }, [events, maps, maintenanceType, ticketStatusFilter, view])
 
   const columns: Column<MaintenanceEvent>[] = useMemo(
     () => maintenanceType === 'tickets'
@@ -151,7 +155,6 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
               <div className="min-w-0">
                 <p className="truncate font-medium text-white">{m.title}</p>
                 {m.brief_description ? <p className="mt-0.5 max-w-md truncate text-[11px] text-slate-500">{m.brief_description}</p> : null}
-                {m.update_note ? <p className="mt-0.5 max-w-md truncate text-[11px] text-neon-300">{m.update_note}</p> : null}
               </div>
             ),
           },
@@ -209,7 +212,7 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
         circuit_id: target.circuit_id ?? '',
         brief_description: target.brief_description ?? '',
         raised_by: RAISED_BY_OPTIONS.find((option) => option === target.request_person) ?? '',
-        update_note: target.update_note ?? '',
+        new_comment: '',
         severity: target.severity,
         status_id: target.status_id,
         description: target.description ?? '',
@@ -234,6 +237,18 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
       push(t.request.invalid, 'error')
       return
     }
+    const previousComments: MaintenanceComment[] =
+      maintenanceType === 'tickets' && editing && editing !== 'new'
+        ? editing.update_comments?.length
+          ? editing.update_comments
+          : editing.update_note?.trim()
+            ? [{ text: editing.update_note.trim(), created_at: editing.created_at }]
+            : []
+        : []
+    const newComment = form.new_comment.trim()
+    const comments = newComment
+      ? [...previousComments, { text: newComment, created_at: new Date().toISOString() }]
+      : previousComments
     const payload: MaintenanceInput = {
       title: form.title.trim(),
       station_id: form.station_id,
@@ -244,7 +259,8 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
       circuit_id: maintenanceType === 'tickets' && form.ticket_type !== 'network_event' ? form.circuit_id.trim() || null : null,
       brief_description: maintenanceType === 'tickets' && form.ticket_type === 'network_event' ? form.brief_description.trim() || null : null,
       request_person: maintenanceType === 'tickets' ? form.raised_by || null : null,
-      update_note: maintenanceType === 'tickets' ? form.update_note.trim() || null : null,
+      update_comments: maintenanceType === 'tickets' ? comments : [],
+      update_note: null,
       severity: form.severity,
       status_id: form.status_id,
       description: form.description.trim() || null,
@@ -304,6 +320,22 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
           </Button>
         ) : null}
       />
+
+      {view === 'tickets-details' ? (
+        <div className="mb-4 flex justify-end">
+          <div className="w-full sm:max-w-xs">
+            <Select
+              label={t.circuits.filterStatus}
+              placeholder={t.common.all}
+              options={(maps?.statusesByScope('maintenance') ?? [])
+                .filter((status) => status.code !== 'planned')
+                .map((status) => ({ value: status.id, label: pick(status) }))}
+              value={ticketStatusFilter}
+              onChange={(e) => setTicketStatusFilter(e.target.value)}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <DataTable
         columns={columns}
@@ -482,13 +514,26 @@ export default function Maintenance({ view }: { view: MaintenanceView }) {
                   <TextArea label={t.common.description} className="sm:col-span-2" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                 </>
               ) : null}
-              {maintenanceType === 'tickets' && editing !== 'new' ? (
+              {maintenanceType === 'tickets' && editing && editing !== 'new' ? (
                 <div className="sm:col-span-2 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-3 space-y-3">
+                    {(editing.update_comments?.length
+                      ? editing.update_comments
+                      : editing.update_note?.trim()
+                        ? [{ text: editing.update_note.trim(), created_at: editing.created_at }]
+                        : []
+                    ).map((comment, index) => (
+                      <div key={`${comment.created_at}-${index}`} className="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+                        <p className="mb-2 text-xs font-medium text-slate-400">{fmtDateTime(comment.created_at, lang)}</p>
+                        <p className="whitespace-pre-wrap text-sm text-slate-200">{comment.text}</p>
+                      </div>
+                    ))}
+                  </div>
                   <TextArea
-                    label={t.om.comment}
+                    label={t.om.newComment}
                     rows={3}
-                    value={form.update_note}
-                    onChange={(e) => setForm({ ...form, update_note: e.target.value })}
+                    value={form.new_comment}
+                    onChange={(e) => setForm({ ...form, new_comment: e.target.value })}
                   />
                 </div>
               ) : null}

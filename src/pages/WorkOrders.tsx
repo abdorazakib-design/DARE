@@ -8,7 +8,7 @@ import { Button, EmptyState, PageHeader, Select, TextInput } from '@/components/
 import { DataTable, type Column } from '@/components/ui/table'
 import { ConfirmDialog, Modal, useToast } from '@/components/ui/feedback'
 import { StatusBadge } from '@/components/badges'
-import { fmtDateTime } from '@/lib/utils'
+import { fmtDateTime, nextWorkOrderNumber } from '@/lib/utils'
 
 interface FormState {
   number: string
@@ -91,11 +91,19 @@ export default function WorkOrders() {
     [t, lang, maps, requests, refs, pick],
   )
 
-  const openEdit = (target: WorkOrder | 'new') => {
+  const openEdit = async (target: WorkOrder | 'new') => {
     if (target === 'new') {
-      const next = `WO-${new Date().getFullYear()}-${String((orders?.length ?? 0) + 1).padStart(3, '0')}`
-      const open = maps?.statusesByScope('work_order').find((s) => s.code === 'open')
-      setForm({ number: next, request_id: '', status_id: open?.id ?? maps?.statusesByScope('work_order')[0]?.id ?? '', assigned_to: '' })
+      try {
+        const currentOrders = orders ?? await fetchWorkOrders()
+        if (!orders) setOrders(currentOrders)
+        const next = nextWorkOrderNumber(currentOrders.map((order) => order.number))
+        if (!next) throw new Error(t.request.invalid)
+        const open = maps?.statusesByScope('work_order').find((s) => s.code === 'open')
+        setForm({ number: next, request_id: '', status_id: open?.id ?? maps?.statusesByScope('work_order')[0]?.id ?? '', assigned_to: '' })
+      } catch (e) {
+        push(e instanceof Error ? e.message : t.common.error, 'error')
+        return
+      }
     } else {
       setForm({ number: target.number, request_id: target.request_id ?? '', status_id: target.status_id, assigned_to: target.assigned_to ?? '' })
     }

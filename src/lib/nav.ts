@@ -8,11 +8,11 @@ import {
   Layers,
   Network,
   Pencil,
+  Plus,
   Rocket,
   Search,
   Send,
   Users,
-  Wrench,
   type LucideIcon,
 } from 'lucide-react'
 import type { Translations } from '@/i18n'
@@ -34,8 +34,23 @@ export const capacityItems: NavItem[] = [
 
 export const mainItems: NavItem[] = [{ path: '/', labelKey: 'dashboard', icon: Gauge }]
 
+export const troubleTicketItems: NavItem[] = [
+  { path: '/maintenance/tickets/create', labelKey: 'createTroubleTicket', icon: Plus },
+  { path: '/maintenance/tickets/details', labelKey: 'troubleTicketDetails', icon: ClipboardList },
+]
+
+export const plannedMaintenanceItems: NavItem[] = [
+  { path: '/maintenance/planned/create', labelKey: 'createPlannedMaintenance', icon: Plus },
+  { path: '/maintenance/planned/details', labelKey: 'plannedMaintenanceDetails', icon: ClipboardList },
+]
+
+export const maintenanceItems: NavItem[] = [
+  ...troubleTicketItems,
+  ...plannedMaintenanceItems,
+  { path: '/maintenance/schedule', labelKey: 'maintenanceSchedule', icon: Activity },
+]
+
 export const secondaryItems: NavItem[] = [
-  { path: '/maintenance', labelKey: 'maintenance', icon: Wrench },
   { path: '/reports', labelKey: 'reports', icon: BarChart3 },
   { path: '/documents', labelKey: 'documents', icon: FolderOpen },
   { path: '/users', labelKey: 'users', icon: Users },
@@ -45,7 +60,9 @@ export const secondaryItems: NavItem[] = [
 ]
 
 export function findNavItem(pathname: string): NavItem | undefined {
-  const all = [...mainItems, ...capacityItems, ...secondaryItems]
+  const all = [...mainItems, ...capacityItems, ...maintenanceItems, ...secondaryItems]
   if (pathname === '/') return all[0]
-  return all.find((item) => pathname.startsWith(item.path))
+  return all
+    .filter((item) => pathname.startsWith(item.path))
+    .sort((a, b) => b.path.length - a.path.length)[0]
 }

@@ -2,19 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Inbox, Send, Wrench, XCircle } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, updateRequestStatus } from '@/data/api'
-import type { Circuit, CircuitRequest } from '@/lib/types'
+import { createCircuit, createRequest, createWorkOrder, fetchCircuits, fetchRequests, fetchWorkOrders, updateRequestStatus } from '@/data/api'
+import type { Circuit, CircuitInput, CircuitRequest } from '@/lib/types'
 import { Button, Card, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
 import { Modal, useToast } from '@/components/ui/feedback'
 import { StatusBadge } from '@/components/badges'
-import { fmtDate, fmtDateTime, todayISO } from '@/lib/utils'
+import { fmtDate, fmtDateTime, nextWorkOrderNumber, todayISO } from '@/lib/utils'
 
 interface FormState {
   type_id: string
   requested_by: string
   requested_date: string
-  designation: string
   circuit_ref: string
   operator_id: string
   station_a_id: string
@@ -34,7 +33,6 @@ const initialForm: FormState = {
   type_id: '',
   requested_by: '',
   requested_date: todayISO(),
-  designation: '',
   circuit_ref: '',
   operator_id: '',
   station_a_id: '',
@@ -76,8 +74,7 @@ export default function CircuitRequest() {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const onPickCircuit = (id: string) => {
-    const c = circuits?.find((x) => x.id === id) ?? null
-    setForm((f) => ({ ...f, circuit_id: id, designation: c?.designation ?? f.designation, circuit_ref: c?.circuit_ref ?? f.circuit_ref }))
+    set('circuit_id', id)
   }
 
   const submit = async () => {
@@ -87,12 +84,11 @@ export default function CircuitRequest() {
       push(t.request.invalid, 'error')
       return
     }
-    let designation = form.designation.trim()
-    let ref = form.circuit_ref.trim()
+    let designation: string | null = null
+    let ref: string | null = form.circuit_ref.trim() || null
     let details: Record<string, unknown> = {}
     if (isActivation) {
       if (
-        !designation ||
         !ref ||
         !form.operator_id ||
         !form.station_a_id ||
@@ -133,7 +129,44 @@ export default function CircuitRequest() {
     }
     setSubmitting(true)
     try {
-      await createRequest({
+      let workOrderNumber: string | null = null
+      let workOrderStatusId: string | null = null
+      if (isActivation) {
+        const operator = refs.operators.find((row) => row.id === form.operator_id)
+        const stationA = refs.stations.find((row) => row.id === form.station_a_id)
+        const stationB = refs.stations.find((row) => row.id === form.station_b_id)
+        const bandwidth = refs.bandwidths.find((row) => row.id === form.bandwidth_id)
+        const interfaceType = refs.interfaceTypes.find((row) => row.id === form.interface_type_id)
+        if (!operator || !stationA || !stationB || !bandwidth || !interfaceType) {
+          throw new Error(t.request.invalid)
+        }
+
+        const existingRequests = await fetchRequests()
+        const activationTypeIds = new Set(refs.requestTypes.filter((row) => row.code === 'activation').map((row) => row.id))
+        const latestSequence = existingRequests.reduce((latest, request) => {
+          if (!activationTypeIds.has(request.request_type_id)) return latest
+          const match = request.circuit_designation?.match(/\/(\d{5})$/)
+          return match ? Math.max(latest, Number(match[1])) : latest
+        }, 0)
+        if (latestSequence >= 99999) throw new Error(t.request.invalid)
+
+        designation = [
+          operator.code,
+          stationA.code,
+          stationB.code,
+          bandwidth.label,
+          interfaceType.label,
+          String(latestSequence + 1).padStart(5, '0'),
+        ].join('/')
+
+        const workOrders = await fetchWorkOrders()
+        workOrderNumber = nextWorkOrderNumber(workOrders.map((order) => order.number))
+        if (!workOrderNumber) throw new Error(t.request.invalid)
+        workOrderStatusId = refs.statuses.find((status) => status.code === 'open' && status.scope === 'work_order')?.id ?? null
+        if (!workOrderStatusId) throw new Error(t.request.invalid)
+      }
+
+      const createdRequest = await createRequest({
         request_type_id: type.id,
         status_id: pending.id,
         circuit_designation: designation,
@@ -142,7 +175,25 @@ export default function CircuitRequest() {
         requested_by: form.requested_by.trim(),
         requested_date: form.requested_date,
       })
-      push(t.request.submitted(pick(type)))
+      if (isActivation && designation && workOrderNumber && workOrderStatusId) {
+        try {
+          await createWorkOrder({
+            number: workOrderNumber,
+            request_id: createdRequest.id,
+            status_id: workOrderStatusId,
+            assigned_to: null,
+          })
+          push(t.request.activationSubmitted(designation, workOrderNumber))
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : t.common.error
+          push(t.request.activationSubmittedWithoutWorkOrder(designation, reason), 'error')
+          setForm({ ...initialForm, requested_date: todayISO(), requested_by: form.requested_by })
+          bump()
+          return
+        }
+      } else {
+        push(t.request.submitted(pick(type)))
+      }
       setForm({ ...initialForm, requested_date: todayISO(), requested_by: form.requested_by })
       bump()
     } catch (e) {
@@ -152,14 +203,22 @@ export default function CircuitRequest() {
     }
   }
 
-  const setStatus = async (r: CircuitRequest, statusCode: string) => {
-    const st = statusBy(statusCode)
-    if (!st) return
+  const createWO = async (r: CircuitRequest) => {
+    if (!refs) return
+    const open = refs.statuses.find((s) => s.code === 'open' && s.scope === 'work_order')
+    if (!open) return
     setActing(true)
     try {
-      await updateRequestStatus(r.id, st.id)
-      push(t.request.statusUpdated)
-      if (selected?.id === r.id) setSelected({ ...r, status_id: st.id })
+      const orders = await fetchWorkOrders()
+      const existing = orders.find((order) => order.request_id === r.id)
+      if (existing) {
+        push(t.request.workOrderAlreadyExists(existing.number))
+        return
+      }
+      const number = nextWorkOrderNumber(orders.map((order) => order.number))
+      if (!number) throw new Error(t.request.invalid)
+      await createWorkOrder({ number, request_id: r.id, status_id: open.id, assigned_to: null })
+      push(t.request.workOrderCreated(number))
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -168,15 +227,82 @@ export default function CircuitRequest() {
     }
   }
 
-  const createWO = async (r: CircuitRequest) => {
-    if (!refs) return
-    const open = refs.statuses.find((s) => s.code === 'open' && s.scope === 'work_order')
-    if (!open) return
+  const createActivationCircuit = async (r: CircuitRequest) => {
+    if (!refs) throw new Error(t.common.error)
+
+    const circuitRef = r.circuit_ref?.trim()
+    const details = r.details
+    const operatorId = details.operator_id
+    const stationAId = details.station_a_id
+    const stationBId = details.station_b_id
+    const bandwidthId = details.bandwidth_id
+    const interfaceTypeId = details.interface_type_id
+    const restorationTypeId = details.restoration_type_id
+    const quantity = details.quantity
+    const active = refs.statuses.find((s) => s.code === 'active' && s.scope === 'circuit')
+
+    if (
+      !circuitRef ||
+      typeof operatorId !== 'string' ||
+      typeof stationAId !== 'string' ||
+      typeof stationBId !== 'string' ||
+      stationAId === stationBId ||
+      typeof bandwidthId !== 'string' ||
+      typeof interfaceTypeId !== 'string' ||
+      typeof restorationTypeId !== 'string' ||
+      typeof quantity !== 'number' ||
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      !active
+    ) {
+      throw new Error(t.request.invalid)
+    }
+
+    const input: CircuitInput = {
+      designation: r.circuit_designation?.trim() || circuitRef,
+      circuit_ref: circuitRef,
+      operator_id: operatorId,
+      station_a_id: stationAId,
+      station_b_id: stationBId,
+      bandwidth_id: bandwidthId,
+      interface_type_id: interfaceTypeId,
+      quantity,
+      restoration_type_id: restorationTypeId,
+      status_id: active.id,
+      requested_by: r.requested_by,
+      activated_at: todayISO(),
+    }
+
+    const existing = (await fetchCircuits()).find((c) => c.circuit_ref === circuitRef)
+    if (existing) {
+      const isSameCircuit =
+        existing.designation === input.designation &&
+        existing.operator_id === input.operator_id &&
+        existing.station_a_id === input.station_a_id &&
+        existing.station_b_id === input.station_b_id &&
+        existing.bandwidth_id === input.bandwidth_id &&
+        existing.interface_type_id === input.interface_type_id &&
+        existing.restoration_type_id === input.restoration_type_id &&
+        existing.quantity === input.quantity &&
+        existing.requested_by === input.requested_by
+      if (isSameCircuit) return
+      throw new Error(t.request.invalid)
+    }
+
+    await createCircuit(input)
+  }
+
+  const setStatus = async (r: CircuitRequest, statusCode: string) => {
+    const st = statusBy(statusCode)
+    if (!st) return
     setActing(true)
     try {
-      const number = `WO-${new Date().getFullYear()}-${String((requests?.length ?? 0) + 1).padStart(3, '0')}`
-      await createWorkOrder({ number, request_id: r.id, status_id: open.id, assigned_to: null })
-      push(t.request.workOrderCreated(number))
+      if (statusCode === 'completed' && maps?.requestTypeById.get(r.request_type_id)?.code === 'activation') {
+        await createActivationCircuit(r)
+      }
+      await updateRequestStatus(r.id, st.id)
+      push(t.request.statusUpdated)
+      if (selected?.id === r.id) setSelected({ ...r, status_id: st.id })
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -268,14 +394,13 @@ export default function CircuitRequest() {
 
             {isActivation ? (
               <div className="grid gap-4 sm:grid-cols-2">
-                <TextInput label={t.request.designation} required value={form.designation} onChange={(e) => set('designation', e.target.value)} />
-                <TextInput label={t.request.circuitRef} required className="font-mono" value={form.circuit_ref} onChange={(e) => set('circuit_ref', e.target.value)} />
-                <Select label={t.request.operator} required options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))} value={form.operator_id} onChange={(e) => set('operator_id', e.target.value)} />
-                <Select label={t.request.stationA} required options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_a_id} onChange={(e) => set('station_a_id', e.target.value)} />
-                <Select label={t.request.stationB} required options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_b_id} onChange={(e) => set('station_b_id', e.target.value)} />
-                <Select label={t.request.bandwidth} required options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))} value={form.bandwidth_id} onChange={(e) => set('bandwidth_id', e.target.value)} />
-                <Select label={t.request.interface} required options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.interface_type_id} onChange={(e) => set('interface_type_id', e.target.value)} />
-                <Select label={t.request.restoration} required options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.restoration_type_id} onChange={(e) => set('restoration_type_id', e.target.value)} />
+                <TextInput label={t.request.circuitRef} required placeholder={t.request.circuitIdPlaceholder} className="font-mono" value={form.circuit_ref} onChange={(e) => set('circuit_ref', e.target.value)} />
+                <Select label={t.request.operator} required placeholder={t.request.chooseParty} options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))} value={form.operator_id} onChange={(e) => set('operator_id', e.target.value)} />
+                <Select label={t.request.stationA} required placeholder={t.request.chooseLandingStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_a_id} onChange={(e) => set('station_a_id', e.target.value)} />
+                <Select label={t.request.stationB} required placeholder={t.request.chooseLandingStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_b_id} onChange={(e) => set('station_b_id', e.target.value)} />
+                <Select label={t.request.bandwidth} required placeholder={t.request.chooseBandwidth} options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))} value={form.bandwidth_id} onChange={(e) => set('bandwidth_id', e.target.value)} />
+                <Select label={t.request.interface} required placeholder={t.request.chooseInterface} options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.interface_type_id} onChange={(e) => set('interface_type_id', e.target.value)} />
+                <Select label={t.request.restoration} required placeholder={t.request.chooseRestoration} options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.restoration_type_id} onChange={(e) => set('restoration_type_id', e.target.value)} />
                 <TextInput label={t.common.quantity} required type="number" min={1} value={form.quantity} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value) || 1))} />
               </div>
             ) : type ? (

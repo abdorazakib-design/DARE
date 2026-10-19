@@ -177,25 +177,25 @@ export const demoUsers: AppUser[] = [
 export const demoMaintenance: MaintenanceEvent[] = [
   {
     id: id(0x0601), ticket_number: null, title: 'Fiber cut on segment DJIBOUTI – BOSASO', station_id: ST[1].id, severity: 'critical',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
     status_id: SX[13].id, description: 'Anchor damage detected near Bosaso. Repair ship dispatched, splicing completed.',
     started_at: '2026-08-14', resolved_at: '2026-08-16', created_at: '2026-08-14T06:50:00Z',
   },
   {
     id: id(0x0602), ticket_number: null, title: 'Optical span loss degradation DJIBOUTI – MOGADISHU', station_id: ST[0].id, severity: 'medium',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
     status_id: SX[12].id, description: 'OSNR degradation trend observed on 4 spans. Investigation ongoing.',
     started_at: '2026-09-30', resolved_at: null, created_at: '2026-09-30T11:25:00Z',
   },
   {
     id: id(0x0603), ticket_number: null, title: 'Card upgrade at Mombasa NNOB', station_id: ST[3].id, severity: 'low',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
     status_id: SX[11].id, description: 'Planned amplifier card replacement during the next maintenance window.',
     started_at: '2026-11-01', resolved_at: null, created_at: '2026-10-01T09:00:00Z',
   },
   {
     id: id(0x0604), ticket_number: null, title: 'Power anomaly at Bosaso NNOB', station_id: ST[1].id, severity: 'high',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_note: null,
+    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
     status_id: SX[13].id, description: 'Rectifier failure — switched to redundant power feed.',
     started_at: '2026-06-12', resolved_at: '2026-06-13', created_at: '2026-06-12T17:40:00Z',
   },

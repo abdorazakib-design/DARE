@@ -26,7 +26,14 @@ export function App() {
         <Route path="workorders" element={<WorkOrders />} />
         <Route path="modify" element={<ModifyCircuit />} />
         <Route path="active" element={<ActiveCircuits />} />
-        <Route path="maintenance" element={<Maintenance />} />
+        <Route path="maintenance" element={<Navigate to="/maintenance/tickets/details" replace />} />
+        <Route path="maintenance/tickets" element={<Navigate to="/maintenance/tickets/details" replace />} />
+        <Route path="maintenance/tickets/create" element={<Maintenance view="tickets-create" />} />
+        <Route path="maintenance/tickets/details" element={<Maintenance view="tickets-details" />} />
+        <Route path="maintenance/planned" element={<Navigate to="/maintenance/planned/details" replace />} />
+        <Route path="maintenance/planned/create" element={<Maintenance view="planned-create" />} />
+        <Route path="maintenance/planned/details" element={<Maintenance view="planned-details" />} />
+        <Route path="maintenance/schedule" element={<Maintenance view="schedule" />} />
         <Route path="reports" element={<Reports />} />
         <Route path="documents" element={<Documents />} />
         <Route path="users" element={<Users />} />

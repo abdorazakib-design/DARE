@@ -127,6 +127,11 @@ export interface AppUser {
   created_at: string
 }
 
+export interface MaintenanceComment {
+  text: string
+  created_at: string
+}
+
 export interface MaintenanceEvent {
   id: string
   ticket_number: string | null
@@ -139,6 +144,7 @@ export interface MaintenanceEvent {
   circuit_id: string | null
   brief_description: string | null
   request_person: string | null
+  update_comments: MaintenanceComment[]
   update_note: string | null
   severity: string
   status_id: string
@@ -238,6 +244,7 @@ export interface MaintenanceInput {
   circuit_id: string | null
   brief_description: string | null
   request_person: string | null
+  update_comments: MaintenanceComment[]
   update_note: string | null
   severity: string
   status_id: string

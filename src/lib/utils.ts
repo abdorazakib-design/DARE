@@ -45,6 +45,15 @@ export function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+export function nextWorkOrderNumber(numbers: string[]): string | null {
+  const latest = numbers.reduce((max, number) => {
+    const match = /^WO(\d{6})$/.exec(number)
+    return match ? Math.max(max, Number(match[1])) : max
+  }, 0)
+  if (latest >= 999999) return null
+  return `WO${String(latest + 1).padStart(6, '0')}`
+}
+
 export function escapeCsvCell(value: string | number | null | undefined): string {
   const s = value === null || value === undefined ? '' : String(value)
   if (/[",\n;]/.test(s)) return `"${s.replace(/"/g, '""')}"`

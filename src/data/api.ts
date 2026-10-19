@@ -230,7 +230,13 @@ export async function createMaintenance(input: MaintenanceInput): Promise<Mainte
     const ticketNumber = input.ticket_type
       ? `TT${String(++demoMaintenanceTicketSequence).padStart(5, '0')}`
       : null
-    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), ...input, ticket_number: ticketNumber }
+    const row: MaintenanceEvent = {
+      id: uid(),
+      created_at: nowISO(),
+      ...input,
+      ticket_number: ticketNumber,
+      update_comments: input.update_comments ?? [],
+    }
     demoMaintenance.unshift(row)
     return row
   }

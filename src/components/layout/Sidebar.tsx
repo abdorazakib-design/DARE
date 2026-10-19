@@ -1,8 +1,16 @@
 import { NavLink } from 'react-router-dom'
-import { ChevronDown, PieChart, Waves, X } from 'lucide-react'
+import { ChevronDown, PieChart, Waves, Wrench, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useI18n } from '@/i18n'
-import { capacityItems, mainItems, secondaryItems, type NavItem } from '@/lib/nav'
+import {
+  capacityItems,
+  mainItems,
+  maintenanceItems,
+  plannedMaintenanceItems,
+  secondaryItems,
+  troubleTicketItems,
+  type NavItem,
+} from '@/lib/nav'
 
 interface SidebarProps {
   open: boolean
@@ -46,6 +54,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
   const { t } = useI18n()
 
   const capacityOpenDefault = capacityItems.some((i) => window.location.pathname.startsWith(i.path))
+  const maintenanceOpenDefault = maintenanceItems.some((i) => window.location.pathname.startsWith(i.path))
 
   return (
     <>
@@ -100,6 +109,35 @@ export function Sidebar({ open, onClose }: SidebarProps) {
               <div className="overflow-hidden">
                 <div className="ml-4 mt-0.5 space-y-0.5 border-l border-white/8 pl-2">
                   {capacityItems.map((item) => (
+                    <NavRow key={item.path} item={item} onNavigate={onClose} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="group">
+            <input type="checkbox" id="maintenance-menu" defaultChecked={maintenanceOpenDefault} className="peer hidden" />
+            <label
+              htmlFor="maintenance-menu"
+              className="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-slate-400 transition-all duration-200 hover:bg-white/[0.05] hover:text-white"
+            >
+              <Wrench className="h-[18px] w-[18px] shrink-0 text-slate-500 transition-colors group-hover:text-neon-300" />
+              <span className="flex-1 truncate">{t.nav.maintenance}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-slate-600 transition-transform duration-300 peer-checked:rotate-180" />
+            </label>
+            <div className="grid grid-rows-[0fr] transition-all duration-300 peer-checked:grid-rows-[1fr]">
+              <div className="overflow-hidden">
+                <div className="ml-4 mt-0.5 space-y-1 border-l border-white/8 pl-2">
+                  <p className="px-3 pt-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">{t.nav.troubleTickets}</p>
+                  {troubleTicketItems.map((item) => (
+                    <NavRow key={item.path} item={item} onNavigate={onClose} />
+                  ))}
+                  <p className="px-3 pt-2 text-[10px] font-semibold tracking-wider text-slate-500 uppercase">{t.nav.plannedMaintenance}</p>
+                  {plannedMaintenanceItems.map((item) => (
+                    <NavRow key={item.path} item={item} onNavigate={onClose} />
+                  ))}
+                  {maintenanceItems.filter((item) => item.labelKey === 'maintenanceSchedule').map((item) => (
                     <NavRow key={item.path} item={item} onNavigate={onClose} />
                   ))}
                 </div>

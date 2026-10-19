@@ -130,6 +130,7 @@ create table maintenance_events (
   circuit_id  text,
   brief_description text,
   request_person text,
+  update_comments jsonb not null default '[]'::jsonb,
   update_note text,
   severity    text not null default 'low' check (severity in ('low', 'medium', 'high', 'critical')),
   status_id   uuid not null references statuses (id),
@@ -138,6 +139,18 @@ create table maintenance_events (
   resolved_at date,
   created_at  timestamptz not null default now()
 );
+
+alter table maintenance_events
+  add column if not exists update_comments jsonb not null default '[]'::jsonb;
+
+update maintenance_events
+set update_comments = jsonb_build_array(
+  jsonb_build_object('text', btrim(update_note), 'created_at', created_at)
+),
+update_note = null
+where update_note is not null
+  and btrim(update_note) <> ''
+  and update_comments = '[]'::jsonb;
 
 create function assign_maintenance_ticket_number()
 returns trigger
