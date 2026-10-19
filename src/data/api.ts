@@ -335,11 +335,37 @@ export async function fetchMaintenance(): Promise<MaintenanceEvent[]> {
 export async function createMaintenance(input: MaintenanceInput): Promise<MaintenanceEvent> {
   if (!isSupabaseConfigured) {
     await wait()
-    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), ...input }
+    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), ticket_number: null, circuit_id: null, ...input }
     demoMaintenance.unshift(row)
     return row
   }
   return sbInsert<MaintenanceEvent>('maintenance_events', { ...input })
+}
+
+/**
+ * Create a trouble ticket with an auto reference number following the
+ * operator standard: TT-YYYY-NNN (e.g. TT-2026-001), incremented per year.
+ */
+export async function createTroubleTicket(input: MaintenanceInput): Promise<MaintenanceEvent> {
+  const year = new Date().getFullYear()
+  if (!isSupabaseConfigured) {
+    await wait()
+    const maxSeq = demoMaintenance.reduce((m, e) => {
+      const match = new RegExp(`^TT-${year}-(\\d+)$`).exec(e.ticket_number ?? '')
+      return match ? Math.max(m, Number(match[1])) : m
+    }, 0)
+    const ticket_number = `TT-${year}-${String(maxSeq + 1).padStart(3, '0')}`
+    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), circuit_id: null, ticket_number, ...input }
+    demoMaintenance.unshift(row)
+    return row
+  }
+  const all = await fetchMaintenance()
+  const maxSeq = all.reduce((m, e) => {
+    const match = new RegExp(`^TT-${year}-(\\d+)$`).exec(e.ticket_number ?? '')
+    return match ? Math.max(m, Number(match[1])) : m
+  }, 0)
+  const ticket_number = `TT-${year}-${String(maxSeq + 1).padStart(3, '0')}`
+  return sbInsert<MaintenanceEvent>('maintenance_events', { ...input, ticket_number })
 }
 
 export async function updateMaintenance(id: string, input: Partial<MaintenanceInput>): Promise<MaintenanceEvent> {

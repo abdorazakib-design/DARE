@@ -169,6 +169,12 @@ export interface MaintenanceEvent {
   severity: string
   status_id: string
   description: string | null
+  /** 'trouble' (incident ticket) or 'planned' (scheduled maintenance). */
+  kind: string
+  /** Auto ticket number for trouble tickets, e.g. TT-2026-001. */
+  ticket_number: string | null
+  /** Circuit affected by the event (optional). */
+  circuit_id: string | null
   started_at: string | null
   resolved_at: string | null
   created_at: string
@@ -259,6 +265,9 @@ export interface MaintenanceInput {
   severity: string
   status_id: string
   description: string | null
+  kind: string
+  ticket_number?: string | null
+  circuit_id?: string | null
   started_at: string | null
   resolved_at: string | null
 }

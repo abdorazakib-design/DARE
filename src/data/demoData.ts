@@ -114,6 +114,9 @@ export const demoStatuses: StatusRow[] = [
   { id: id(0x0088), code: 'planned', scope: 'maintenance', label_en: 'Planned', label_fr: 'Planifié', color: '#38bdf8', sort_order: 1 },
   { id: id(0x0089), code: 'ongoing', scope: 'maintenance', label_en: 'Ongoing', label_fr: 'En cours', color: '#f59e0b', sort_order: 2 },
   { id: id(0x008a), code: 'resolved', scope: 'maintenance', label_en: 'Resolved', label_fr: 'Résolu', color: '#34d399', sort_order: 3 },
+  { id: id(0x008b), code: 'open', scope: 'trouble_ticket', label_en: 'Open', label_fr: 'Ouvert', color: '#f59e0b', sort_order: 1 },
+  { id: id(0x008c), code: 'in-progress', scope: 'trouble_ticket', label_en: 'In Progress', label_fr: 'En cours', color: '#38bdf8', sort_order: 2 },
+  { id: id(0x008d), code: 'resolved', scope: 'trouble_ticket', label_en: 'Resolved', label_fr: 'Résolu', color: '#34d399', sort_order: 3 },
   { id: id(0x0091), code: 'done', scope: 'project', label_en: 'Done', label_fr: 'Terminé', color: '#34d399', sort_order: 1 },
   { id: id(0x0092), code: 'in-progress', scope: 'project', label_en: 'In Progress', label_fr: 'En cours', color: '#38bdf8', sort_order: 2 },
   { id: id(0x0093), code: 'delayed', scope: 'project', label_en: 'Delayed', label_fr: 'Retardé', color: '#f87171', sort_order: 3 },
@@ -231,32 +234,36 @@ export const demoUsers: AppUser[] = [
 export const demoMaintenance: MaintenanceEvent[] = [
   {
     id: id(0x0601), title: 'Fiber cut on segment DJIBOUTI – BOSASO', station_id: ST[1].id, severity: 'critical',
-    status_id: SX[13].id, description: 'Anchor damage detected near Bosaso. Repair ship dispatched, splicing completed.',
+    status_id: SX[16].id, description: 'Anchor damage detected near Bosaso. Repair ship dispatched, splicing completed.',
+    kind: 'trouble', ticket_number: 'TT-2026-001', circuit_id: null,
     started_at: '2026-08-14', resolved_at: '2026-08-16', created_at: '2026-08-14T06:50:00Z',
   },
   {
     id: id(0x0602), title: 'Optical span loss degradation DJIBOUTI – MOGADISHU', station_id: ST[0].id, severity: 'medium',
-    status_id: SX[12].id, description: 'OSNR degradation trend observed on 4 spans. Investigation ongoing.',
+    status_id: SX[15].id, description: 'OSNR degradation trend observed on 4 spans. Investigation ongoing.',
+    kind: 'trouble', ticket_number: 'TT-2026-002', circuit_id: null,
     started_at: '2026-09-30', resolved_at: null, created_at: '2026-09-30T11:25:00Z',
   },
   {
     id: id(0x0603), title: 'Card upgrade at Mombasa NNOB', station_id: ST[3].id, severity: 'low',
     status_id: SX[11].id, description: 'Planned amplifier card replacement during the next maintenance window.',
+    kind: 'planned', ticket_number: null, circuit_id: null,
     started_at: '2026-11-01', resolved_at: null, created_at: '2026-10-01T09:00:00Z',
   },
   {
     id: id(0x0604), title: 'Power anomaly at Bosaso NNOB', station_id: ST[1].id, severity: 'high',
-    status_id: SX[13].id, description: 'Rectifier failure — switched to redundant power feed.',
+    status_id: SX[16].id, description: 'Rectifier failure — switched to redundant power feed.',
+    kind: 'trouble', ticket_number: 'TT-2026-003', circuit_id: null,
     started_at: '2026-06-12', resolved_at: '2026-06-13', created_at: '2026-06-12T17:40:00Z',
   },
 ]
 
 export const demoPhases: ProjectPhase[] = [
-  { id: id(0x0701), name: 'System Design & Marine Survey', phase_order: 1, status_id: SX[14].id, progress: 100, start_date: '2025-02-01', end_date: '2025-04-30' },
-  { id: id(0x0702), name: 'Marine Installation & Cable Laying', phase_order: 2, status_id: SX[14].id, progress: 100, start_date: '2025-05-10', end_date: '2025-09-15' },
-  { id: id(0x0703), name: 'System Integration & Testing', phase_order: 3, status_id: SX[14].id, progress: 100, start_date: '2025-09-16', end_date: '2026-01-20' },
-  { id: id(0x0704), name: 'Ready for Service (RFS) & Acceptance', phase_order: 4, status_id: SX[15].id, progress: 75, start_date: '2026-01-21', end_date: '2026-11-30' },
-  { id: id(0x0705), name: 'Phase 1 Capacity Sales', phase_order: 5, status_id: SX[17].id, progress: 5, start_date: '2026-10-01', end_date: '2027-03-31' },
+  { id: id(0x0701), name: 'System Design & Marine Survey', phase_order: 1, status_id: SX[17].id, progress: 100, start_date: '2025-02-01', end_date: '2025-04-30' },
+  { id: id(0x0702), name: 'Marine Installation & Cable Laying', phase_order: 2, status_id: SX[17].id, progress: 100, start_date: '2025-05-10', end_date: '2025-09-15' },
+  { id: id(0x0703), name: 'System Integration & Testing', phase_order: 3, status_id: SX[17].id, progress: 100, start_date: '2025-09-16', end_date: '2026-01-20' },
+  { id: id(0x0704), name: 'Ready for Service (RFS) & Acceptance', phase_order: 4, status_id: SX[18].id, progress: 75, start_date: '2026-01-21', end_date: '2026-11-30' },
+  { id: id(0x0705), name: 'Phase 1 Capacity Sales', phase_order: 5, status_id: SX[20].id, progress: 5, start_date: '2026-10-01', end_date: '2027-03-31' },
 ]
 
 export function statusByCode(code: string, scope: string): StatusRow {

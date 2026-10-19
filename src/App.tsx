@@ -7,7 +7,11 @@ import CircuitSearch from './pages/CircuitSearch'
 import CircuitRequest from './pages/CircuitRequest'
 import WorkOrders from './pages/WorkOrders'
 import ModifyCircuit from './pages/ModifyCircuit'
-import Maintenance from './pages/Maintenance'
+import CreateTroubleTicket from './pages/maintenance/CreateTroubleTicket'
+import TroubleTicketDetail from './pages/maintenance/TroubleTicketDetail'
+import CreatePlannedMaintenance from './pages/maintenance/CreatePlannedMaintenance'
+import PlannedMaintenanceDetail from './pages/maintenance/PlannedMaintenanceDetail'
+import Schedules from './pages/maintenance/Schedules'
 import Reports from './pages/Reports'
 import Documents from './pages/Documents'
 import Users from './pages/Users'
@@ -26,7 +30,12 @@ export function App() {
         <Route path="request" element={<CircuitRequest />} />
         <Route path="workorders" element={<WorkOrders />} />
         <Route path="modify" element={<ModifyCircuit />} />
-        <Route path="maintenance" element={<Maintenance />} />
+        <Route path="maintenance" element={<Navigate to="/maintenance/trouble" replace />} />
+        <Route path="maintenance/trouble/new" element={<CreateTroubleTicket />} />
+        <Route path="maintenance/trouble" element={<TroubleTicketDetail />} />
+        <Route path="maintenance/planned/new" element={<CreatePlannedMaintenance />} />
+        <Route path="maintenance/planned" element={<PlannedMaintenanceDetail />} />
+        <Route path="maintenance/schedules" element={<Schedules />} />
         <Route path="reports" element={<Reports />} />
         <Route path="documents" element={<Documents />} />
         <Route path="users" element={<Users />} />

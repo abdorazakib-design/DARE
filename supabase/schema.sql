@@ -449,4 +449,22 @@ join landing_stations sa  on sa.code = v.sta
 join landing_stations sb  on sb.code = v.stb
 on conflict (operator_id, station_a_id, station_b_id, fp_pair) do nothing;
 
+-- ------------------------------------------------------------------------------
+-- Maintenance module: trouble tickets + planned maintenance + schedules
+-- maintenance_events gains a kind ('trouble' | 'planned'), an auto ticket
+-- number (TT-YYYY-NNN) and an optional circuit reference. Trouble tickets use
+-- their own status workflow (open → in-progress → resolved).
+-- ------------------------------------------------------------------------------
+alter table maintenance_events add column if not exists kind          text not null default 'planned';
+alter table maintenance_events add column if not exists ticket_number text;
+alter table maintenance_events add column if not exists circuit_id    uuid references circuits(id);
+
+create unique index if not exists maintenance_events_ticket_number_key on maintenance_events (ticket_number);
+
+insert into statuses (code, scope, label_en, label_fr, color, sort_order) values
+  ('open',        'trouble_ticket', 'Open',        'Ouvert',     '#f59e0b', 1),
+  ('in-progress', 'trouble_ticket', 'In Progress', 'En cours',   '#38bdf8', 2),
+  ('resolved',    'trouble_ticket', 'Resolved',    'Résolu',     '#34d399', 3)
+on conflict (code, scope) do nothing;
+
 -- Done ✅
