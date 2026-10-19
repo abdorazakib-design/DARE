@@ -56,7 +56,6 @@ create table statuses (
   code      text not null,
   scope     text not null,
   label_en  text not null,
-  label_fr  text not null,
   color     text not null default '#64748b',
   sort_order int not null default 0,
   unique (code, scope)
@@ -157,16 +156,16 @@ create table project_phases (
   end_date    date
 );
 insert into operators (id, code, name) values
-  ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOMTEL', 'SOMTEL'),
-  ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HORMUUD', 'HORMUUD'),
-  ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJIBOUTI TELECOM', 'DJIBOUTI TELECOM'),
-  ('b5636561-4bf0-4608-a829-878a6c209d3f', 'TELESOM', 'TELESOM');
+  ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOM', 'SOMTEL'),
+  ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HOR', 'HORMUUD'),
+  ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJB', 'DJIBOUTI TELECOM');
 
-insert into landing_stations (id, code, name, country, x, y) values
-  ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJIBOUTI', 'DJIBOUTI', 'Djibouti', 120, 84),
-  ('6844c28f-3404-4bf2-8384-ff49c9312e1d', 'BOSASO', 'BOSASO', 'Somalia', 512, 78),
-  ('f6116f62-83ef-4798-b082-f51cbe2f972e', 'MOGADISHU', 'MOGADISHU', 'Somalia', 566, 214),
-  ('e4f8e690-272b-470f-a43a-ba7720b535c7', 'MOMBASA', 'MOMBASA', 'Kenya', 168, 328);
+
+insert into landing_stations (id, code, name, x, y) values
+  ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJIBOUTI', 'DJIBOUTI', 120, 84),
+  ('6844c28f-3404-4bf2-8384-ff49c9312e1d', 'BOSASO', 'BOSASO' , 512, 78),
+  ('f6116f62-83ef-4798-b082-f51cbe2f972e', 'MOGADISHU', 'MOGADISHU', 566, 214),
+  ('e4f8e690-272b-470f-a43a-ba7720b535c7', 'MOMBASA', 'MOMBASA', 168, 328);
 
 insert into bandwidths (id, label, value_gbps, sort_order) values
   ('3464f64f-4b8b-4903-9292-2222b80cb6ac', '10G', 10, 1),
@@ -194,25 +193,25 @@ insert into request_types (id, code, label_en, label_fr, desc_en, desc_fr, sort_
   ('98009826-f7f8-45bb-815c-3aba5a3fc5f6', 'interface-change', 'Interface Change', 'Changement d''interface', 'Change the interface type of an existing circuit.', 'Changer le type d''interface d''un circuit existant.', 5),
   ('1e3c3da4-4c55-42ba-be2c-88eb49043806', 'restoration-change', 'Restoration Change', 'Changement de restauration', 'Change the restoration type of an existing circuit.', 'Changer le type de restauration d''un circuit existant.', 6);
 
-insert into statuses (id, code, scope, label_en, label_fr, color, sort_order) values
-  ('0ae90885-d967-40d5-bada-02ce01374e1d', 'pending', 'request', 'Pending', 'En attente', '#f59e0b', 1),
-  ('778743ea-6877-4400-8808-83ddb0c4da91', 'in-review', 'request', 'In Review', 'En révision', '#38bdf8', 2),
-  ('347e8f89-1430-4eec-a444-0241e87fd134', 'approved', 'request', 'Approved', 'Approuvée', '#34d399', 3),
-  ('abd377e3-1eaa-42d6-b0bc-265f4e930008', 'rejected', 'request', 'Rejected', 'Rejetée', '#f87171', 4),
-  ('0c554657-1396-440b-ac6c-d559ab3b85ae', 'completed', 'request', 'Completed', 'Terminée', '#a78bfa', 5),
-  ('93725c0b-486f-49fb-a00d-63893691ba70', 'active', 'circuit', 'Active', 'Actif', '#34d399', 1),
-  ('9d0e86be-7a8f-4c21-b170-c44290ec3ff5', 'inactive', 'circuit', 'Inactive', 'Inactif', '#64748b', 2),
-  ('14b527d5-dbcf-487d-8b1d-ff1d5f845983', 'suspended', 'circuit', 'Suspended', 'Suspendu', '#f59e0b', 3),
-  ('0494db14-4e84-47d4-8976-fadc390904a8', 'open', 'work_order', 'Open', 'Ouvert', '#38bdf8', 1),
-  ('4fd9b0fd-ea4b-42e3-a92e-ac0ac901b589', 'in-progress', 'work_order', 'In Progress', 'En cours', '#f59e0b', 2),
-  ('e4e64a01-c110-4cc9-b567-586856615b3a', 'closed', 'work_order', 'Closed', 'Clôturé', '#64748b', 3),
-  ('781ca801-e7ce-44e6-9b2d-4103337012cb', 'planned', 'maintenance', 'Planned', 'Planifié', '#38bdf8', 1),
-  ('4627d430-777a-4189-958e-4f59e40b8d53', 'ongoing', 'maintenance', 'Ongoing', 'En cours', '#f59e0b', 2),
-  ('eed1ff46-9b4a-4fa4-bf3e-2777017df482', 'resolved', 'maintenance', 'Resolved', 'Résolu', '#34d399', 3),
-  ('9ce6bbe2-94aa-4490-89d4-b4fa2c137598', 'done', 'project', 'Done', 'Terminé', '#34d399', 1),
-  ('6b17bfac-64a5-430a-bc14-0920e5c0e0ae', 'in-progress', 'project', 'In Progress', 'En cours', '#38bdf8', 2),
-  ('5cdcd49d-6fac-4c80-ac1a-3dcfd259bea2', 'delayed', 'project', 'Delayed', 'Retardé', '#f87171', 3),
-  ('b5496731-8509-4c15-9751-d5018ebcad52', 'planned', 'project', 'Planned', 'Planifié', '#94a3b8', 4);
+insert into statuses (id, code, scope, label_en, color, sort_order) values
+  ('0ae90885-d967-40d5-bada-02ce01374e1d', 'pending', 'request', 'Pending', '#f59e0b', 1),
+  ('778743ea-6877-4400-8808-83ddb0c4da91', 'in-review', 'request', 'In Review', '#38bdf8', 2),
+  ('347e8f89-1430-4eec-a444-0241e87fd134', 'approved', 'request', 'Approved', '#34d399', 3),
+  ('abd377e3-1eaa-42d6-b0bc-265f4e930008', 'rejected', 'request', 'Rejected', '#f87171', 4),
+  ('0c554657-1396-440b-ac6c-d559ab3b85ae', 'completed', 'request', 'Completed', '#a78bfa', 5),
+  ('93725c0b-486f-49fb-a00d-63893691ba70', 'active', 'circuit', 'Active', '#34d399', 1),
+  ('9d0e86be-7a8f-4c21-b170-c44290ec3ff5', 'inactive', 'circuit', 'Inactive', '#64748b', 2),
+  ('14b527d5-dbcf-487d-8b1d-ff1d5f845983', 'suspended', 'circuit', 'Suspended', '#f59e0b', 3),
+  ('0494db14-4e84-47d4-8976-fadc390904a8', 'open', 'work_order', 'Open', '#38bdf8', 1),
+  ('4fd9b0fd-ea4b-42e3-a92e-ac0ac901b589', 'in-progress', 'work_order', 'In Progress', '#f59e0b', 2),
+  ('e4e64a01-c110-4cc9-b567-586856615b3a', 'closed', 'work_order', 'Closed', '#64748b', 3),
+  ('781ca801-e7ce-44e6-9b2d-4103337012cb', 'planned', 'maintenance', 'Planned', '#38bdf8', 1),
+  ('4627d430-777a-4189-958e-4f59e40b8d53', 'ongoing', 'maintenance', 'Ongoing', '#f59e0b', 2),
+  ('eed1ff46-9b4a-4fa4-bf3e-2777017df482', 'resolved', 'maintenance', 'Resolved', '#34d399', 3),
+  ('9ce6bbe2-94aa-4490-89d4-b4fa2c137598', 'done', 'project', 'Done',  '#34d399', 1),
+  ('6b17bfac-64a5-430a-bc14-0920e5c0e0ae', 'in-progress', 'project', 'In Progress', '#38bdf8', 2),
+  ('5cdcd49d-6fac-4c80-ac1a-3dcfd259bea2', 'delayed', 'project', 'Delayed', , '#f87171', 3),
+  ('b5496731-8509-4c15-9751-d5018ebcad52', 'planned', 'project', 'Planned', '#94a3b8', 4);
 
 insert into document_categories (id, code, label_en, label_fr) values
   ('8a02e3af-5802-4da0-b7df-775e88ae78dc', 'technical', 'Technical', 'Technique'),
