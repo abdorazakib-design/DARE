@@ -156,6 +156,8 @@ export const fr: Translations = {
     workOrderCreated: (n: string) => `Ordre de travail ${n} créé`,
     emptyHistory: 'Aucune demande — soumettez la première',
     emptyHint: 'Le formulaire s\'adapte dynamiquement au type de demande sélectionné',
+    recapPending: 'Demande soumise — en attente d\'approbation. Conservez ce récapitulatif pour la traçabilité.',
+
     recapTitle: 'Récapitulatif — Activation de circuit',
     recapIntro: 'Demande finalisée — conservez ce récapitulatif pour la confirmation et la traçabilité.',
     recapActivation: 'Circuit Activation',

@@ -111,6 +111,14 @@ export function ActivationRecap({ request, onClose }: Props) {
   const asText = (): string =>
     sections.map((s) => `${s.title}\n${s.rows.map((r) => `${r.label}: ${r.value}`).join('\n')}`).join('\n\n')
 
+  /** Pending requests just got submitted; approved/completed ones are final. */
+  const intro = useMemo(() => {
+    if (!request) return ''
+    const code = maps?.statusById.get(request.status_id)?.code
+    return code === 'pending' ? t.request.recapPending : t.request.recapIntro
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, maps, t])
+
 
   const printRecap = () => {
     if (!request) return
@@ -174,7 +182,7 @@ ${sections
       {request ? (
         <div className="space-y-4">
           <div className="rounded-xl border border-neon-400/20 bg-neon-500/5 px-3.5 py-2.5 text-xs text-neon-200">
-            {t.request.recapIntro}
+            {intro}
           </div>
           {sections.map((s) => (
             <section key={s.title}>

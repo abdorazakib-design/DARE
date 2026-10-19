@@ -154,6 +154,7 @@ export const en = {
     workOrderCreated: (n: string) => `Work order ${n} created`,
     emptyHistory: 'No requests yet — submit your first one',
     emptyHint: 'The form adapts dynamically to the selected request type',
+    recapPending: 'Request submitted — awaiting approval. Keep this summary for traceability.',
     recapTitle: 'Summary — Circuit Activation',
     recapIntro: 'Request completed — keep this summary for confirmation and traceability.',
     recapActivation: 'Circuit Activation',

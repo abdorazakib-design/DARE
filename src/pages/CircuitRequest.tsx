@@ -194,7 +194,7 @@ export default function CircuitRequest() {
     setSubmitting(true)
     try {
       if (isActivation) ref = await reserveCircuitRef(refPrefix)
-      await createRequest({
+      const created = await createRequest({
         request_type_id: type.id,
         status_id: pending.id,
         circuit_designation: designation,
@@ -205,6 +205,10 @@ export default function CircuitRequest() {
       })
       push(t.request.submitted(pick(type)))
       setForm({ ...initialForm, requested_date: todayISO() })
+      // Reveal the history so the new request is visibly listed right away.
+      setShowHistory(true)
+      // Show the confirmation sheet right away (status: pending approval).
+      if (isActivation) setRecap(created)
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
