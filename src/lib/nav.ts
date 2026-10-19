@@ -1,8 +1,9 @@
 import {
-  Activity,
   BarChart3,
   Cable,
+  CalendarRange,
   ClipboardList,
+  Database,
   FolderOpen,
   Gauge,
   Layers,
@@ -24,12 +25,12 @@ export interface NavItem {
 }
 
 export const capacityItems: NavItem[] = [
+  { path: '/capacity', labelKey: 'capacityEntitlements', icon: Database },
   { path: '/mux', labelKey: 'muxPlan', icon: Layers },
   { path: '/circuits', labelKey: 'circuitSearch', icon: Search },
   { path: '/request', labelKey: 'circuitRequest', icon: Send },
   { path: '/workorders', labelKey: 'workOrders', icon: ClipboardList },
   { path: '/modify', labelKey: 'modifyCircuit', icon: Pencil },
-  { path: '/active', labelKey: 'activeCircuits', icon: Activity },
 ]
 
 export const mainItems: NavItem[] = [{ path: '/', labelKey: 'dashboard', icon: Gauge }]
@@ -47,7 +48,7 @@ export const plannedMaintenanceItems: NavItem[] = [
 export const maintenanceItems: NavItem[] = [
   ...troubleTicketItems,
   ...plannedMaintenanceItems,
-  { path: '/maintenance/schedule', labelKey: 'maintenanceSchedule', icon: Activity },
+  { path: '/maintenance/schedule', labelKey: 'maintenanceSchedule', icon: CalendarRange },
 ]
 
 export const secondaryItems: NavItem[] = [

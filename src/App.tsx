@@ -1,13 +1,17 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import Dashboard from './pages/Dashboard'
+import Capacity from './pages/Capacity'
 import MuxPlan from './pages/MuxPlan'
 import CircuitSearch from './pages/CircuitSearch'
 import CircuitRequest from './pages/CircuitRequest'
 import WorkOrders from './pages/WorkOrders'
 import ModifyCircuit from './pages/ModifyCircuit'
-import ActiveCircuits from './pages/ActiveCircuits'
-import Maintenance from './pages/Maintenance'
+import CreateTroubleTicket from './pages/maintenance/CreateTroubleTicket'
+import TroubleTicketDetail from './pages/maintenance/TroubleTicketDetail'
+import CreatePlannedMaintenance from './pages/maintenance/CreatePlannedMaintenance'
+import PlannedMaintenanceDetail from './pages/maintenance/PlannedMaintenanceDetail'
+import Schedules from './pages/maintenance/Schedules'
 import Reports from './pages/Reports'
 import Documents from './pages/Documents'
 import Users from './pages/Users'
@@ -20,20 +24,18 @@ export function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
+        <Route path="capacity" element={<Capacity />} />
         <Route path="mux" element={<MuxPlan />} />
         <Route path="circuits" element={<CircuitSearch />} />
         <Route path="request" element={<CircuitRequest />} />
         <Route path="workorders" element={<WorkOrders />} />
         <Route path="modify" element={<ModifyCircuit />} />
-        <Route path="active" element={<ActiveCircuits />} />
-        <Route path="maintenance" element={<Navigate to="/maintenance/tickets/details" replace />} />
-        <Route path="maintenance/tickets" element={<Navigate to="/maintenance/tickets/details" replace />} />
-        <Route path="maintenance/tickets/create" element={<Maintenance view="tickets-create" />} />
-        <Route path="maintenance/tickets/details" element={<Maintenance view="tickets-details" />} />
-        <Route path="maintenance/planned" element={<Navigate to="/maintenance/planned/details" replace />} />
-        <Route path="maintenance/planned/create" element={<Maintenance view="planned-create" />} />
-        <Route path="maintenance/planned/details" element={<Maintenance view="planned-details" />} />
-        <Route path="maintenance/schedule" element={<Maintenance view="schedule" />} />
+        <Route path="maintenance" element={<Navigate to="/maintenance/trouble" replace />} />
+        <Route path="maintenance/trouble/new" element={<CreateTroubleTicket />} />
+        <Route path="maintenance/trouble" element={<TroubleTicketDetail />} />
+        <Route path="maintenance/planned/new" element={<CreatePlannedMaintenance />} />
+        <Route path="maintenance/planned" element={<PlannedMaintenanceDetail />} />
+        <Route path="maintenance/schedules" element={<Schedules />} />
         <Route path="reports" element={<Reports />} />
         <Route path="documents" element={<Documents />} />
         <Route path="users" element={<Users />} />

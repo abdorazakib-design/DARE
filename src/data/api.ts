@@ -1,4 +1,5 @@
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase'
+import { formatCircuitRef, nextSequence } from '@/lib/circuitRef'
 import {
   demoCircuits,
   demoDocCategories,
@@ -21,6 +22,8 @@ import type {
   AppUser,
   AppUserInput,
   BackhaulProvider,
+  CapacityEntitlement,
+  CapacityEntitlementInput,
   Circuit,
   CircuitInput,
   CircuitRequest,
@@ -37,11 +40,6 @@ import type {
 } from '@/lib/types'
 import { uid } from '@/lib/utils'
 
-let demoMaintenanceTicketSequence = demoMaintenance.reduce((max, event) => {
-  const match = /^TT(\d{5})$/.exec(event.ticket_number ?? '')
-  return match ? Math.max(max, Number(match[1])) : max
-}, 0)
-
 /**
  * Unified data access layer.
  * - Live mode: every call hits Supabase.
@@ -51,65 +49,6 @@ let demoMaintenanceTicketSequence = demoMaintenance.reduce((max, event) => {
 
 const nowISO = () => new Date().toISOString()
 const wait = (ms = 160) => new Promise<void>((r) => setTimeout(r, ms))
-const DEMO_MAINTENANCE_TICKETS_KEY = 'dare.demo.maintenance-tickets'
-
-let demoMaintenanceTicketsLoaded = false
-
-function isMaintenanceComment(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false
-  const comment = value as Record<string, unknown>
-  return typeof comment.text === 'string' && typeof comment.created_at === 'string'
-}
-
-function isMaintenanceTicket(value: unknown): value is MaintenanceEvent {
-  if (typeof value !== 'object' || value === null) return false
-  const ticket = value as Record<string, unknown>
-  return (
-    typeof ticket.id === 'string' &&
-    typeof ticket.ticket_number === 'string' &&
-    /^TT\d{5}$/.test(ticket.ticket_number) &&
-    typeof ticket.title === 'string' &&
-    typeof ticket.station_id === 'string' &&
-    typeof ticket.status_id === 'string' &&
-    typeof ticket.created_at === 'string' &&
-    Array.isArray(ticket.update_comments) &&
-    ticket.update_comments.every(isMaintenanceComment)
-  )
-}
-
-function loadDemoMaintenanceTickets(): void {
-  if (demoMaintenanceTicketsLoaded || typeof window === 'undefined') return
-  const stored = window.localStorage.getItem(DEMO_MAINTENANCE_TICKETS_KEY)
-  if (stored !== null) {
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(stored)
-    } catch {
-      throw new Error('Saved demo trouble tickets could not be read. Clear the dare.demo.maintenance-tickets browser storage entry and try again.')
-    }
-    if (!Array.isArray(parsed) || !parsed.every(isMaintenanceTicket)) {
-      throw new Error('Saved demo trouble tickets have an invalid format. Clear the dare.demo.maintenance-tickets browser storage entry and try again.')
-    }
-    const savedTickets = parsed as MaintenanceEvent[]
-    demoMaintenance.splice(
-      0,
-      demoMaintenance.length,
-      ...demoMaintenance.filter((event) => !event.ticket_number),
-      ...savedTickets,
-    )
-    demoMaintenanceTicketSequence = savedTickets.reduce((max, ticket) => {
-      const match = /^TT(\d{5})$/.exec(ticket.ticket_number ?? '')
-      return match ? Math.max(max, Number(match[1])) : max
-    }, demoMaintenanceTicketSequence)
-  }
-  demoMaintenanceTicketsLoaded = true
-}
-
-function persistDemoMaintenanceTickets(): void {
-  if (typeof window === 'undefined') return
-  const tickets = demoMaintenance.filter((event) => event.ticket_number !== null)
-  window.localStorage.setItem(DEMO_MAINTENANCE_TICKETS_KEY, JSON.stringify(tickets))
-}
 
 async function sbList<T>(table: string, order: string, ascending = true): Promise<T[]> {
   const { data, error } = await getSupabase().from(table).select('*').order(order, { ascending })
@@ -227,6 +166,105 @@ export async function createRequest(input: RequestInput): Promise<CircuitRequest
   return sbInsert<CircuitRequest>('circuit_requests', { ...input })
 }
 
+/**
+ * Creates the actual `circuits` row for an approved "New Circuit Activation"
+ * request. Called when a request is approved (or completed) so the circuit
+ * shows up in the Circuit List.
+ *
+ * Idempotent: does nothing when the request is not an activation, when its
+ * details are incomplete, or when a circuit with the same ref already exists
+ * (the circuits.circuit_ref unique constraint is the final safety net).
+ */
+export async function provisionCircuitFromRequest(
+  request: CircuitRequest,
+  activeStatusId: string,
+): Promise<Circuit | null> {
+  if (!request.circuit_ref || !request.circuit_designation) return null
+  const d = (request.details ?? {}) as Partial<Record<
+    'operator_id' | 'station_a_id' | 'station_b_id' | 'bandwidth_id' | 'interface_type_id' | 'restoration_type_id',
+    string
+  >> & { quantity?: number }
+  if (
+    !d.operator_id ||
+    !d.station_a_id ||
+    !d.station_b_id ||
+    !d.bandwidth_id ||
+    !d.interface_type_id ||
+    !d.restoration_type_id
+  ) {
+    return null // not an activation request, or incomplete details
+  }
+
+  // Skip if the circuit was already provisioned (e.g. approved then completed).
+  const existing = (await fetchCircuits()).find((c) => c.circuit_ref === request.circuit_ref)
+  if (existing) return null
+
+  const input: CircuitInput = {
+    designation: request.circuit_designation,
+    circuit_ref: request.circuit_ref,
+    operator_id: d.operator_id,
+    station_a_id: d.station_a_id,
+    station_b_id: d.station_b_id,
+    bandwidth_id: d.bandwidth_id,
+    interface_type_id: d.interface_type_id,
+    quantity: Number(d.quantity ?? 1) || 1,
+    restoration_type_id: d.restoration_type_id,
+    status_id: activeStatusId,
+    requested_by: request.requested_by,
+    activated_at: request.requested_date ?? null,
+  }
+  try {
+    return await createCircuit(input)
+  } catch (e) {
+    // Lost a race: another provision created the circuit first — fine.
+    const msg = e instanceof Error ? e.message : ''
+    if (/duplicate key|unique/i.test(msg)) return null
+    throw e
+  }
+}
+
+// ---------- Atomic circuit ID reservation ----------
+
+/** Demo-mode sequence bookkeeping (kept across calls, not persisted). */
+const demoRefCounters = new Map<string, number>()
+
+/**
+ * Reserves the next circuit ID (circuit_ref) for a given prefix — atomically.
+ *
+ * Live mode: calls the Postgres function `next_circuit_ref(p_prefix)` defined
+ * in supabase/schema.sql. It increments a per-prefix counter with
+ * `insert … on conflict do update … returning`, so two concurrent requests can
+ * never receive the same ID (the unique constraint on circuits.circuit_ref
+ * stays the final safety net).
+ *
+ * If the function is not installed yet, we fall back to deriving the next
+ * sequence from the refs already stored (best effort, race-prone).
+ */
+export async function reserveCircuitRef(prefix: string): Promise<string> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await getSupabase().rpc('next_circuit_ref', { p_prefix: prefix })
+      if (!error && typeof data === 'string' && data.startsWith(prefix)) return data
+    } catch {
+      // Function not installed yet — fall through to the best-effort path.
+    }
+    const [circuits, requests] = await Promise.all([fetchCircuits(), fetchRequests()])
+    return formatCircuitRef(
+      prefix,
+      nextSequence(prefix, [...circuits.map((c) => c.circuit_ref), ...requests.map((r) => r.circuit_ref)]),
+    )
+  }
+
+  // Demo mode: in-memory counters.
+  await wait()
+  const known = demoRefCounters.get(prefix)
+  const seq =
+    known ??
+    nextSequence(prefix, [...demoCircuits.map((c) => c.circuit_ref), ...demoRequests.map((r) => r.circuit_ref)])
+  demoRefCounters.set(prefix, seq + 1)
+  return formatCircuitRef(prefix, seq)
+}
+
 export async function updateRequestStatus(id: string, statusId: string): Promise<CircuitRequest> {
   if (!isSupabaseConfigured) {
     await wait()
@@ -236,6 +274,17 @@ export async function updateRequestStatus(id: string, statusId: string): Promise
     return demoRequests[i]
   }
   return sbUpdate<CircuitRequest>('circuit_requests', id, { status_id: statusId })
+}
+
+/** Persist extra keys into a request's JSONB details (e.g. approved_at for the recap). */
+export async function updateRequestDetails(id: string, details: Record<string, unknown>): Promise<void> {
+  if (!isSupabaseConfigured) {
+    await wait()
+    const i = demoRequests.findIndex((r) => r.id === id)
+    if (i !== -1) demoRequests[i] = { ...demoRequests[i], details }
+    return
+  }
+  await sbUpdate<CircuitRequest>('circuit_requests', id, { details })
 }
 
 // ---------- Work orders ----------
@@ -279,42 +328,52 @@ export async function deleteWorkOrder(id: string): Promise<void> {
 // ---------- Maintenance ----------
 
 export async function fetchMaintenance(): Promise<MaintenanceEvent[]> {
-  if (!isSupabaseConfigured) {
-    loadDemoMaintenanceTickets()
-    return wait().then(() => [...demoMaintenance])
-  }
+  if (!isSupabaseConfigured) return wait().then(() => [...demoMaintenance])
   return sbList<MaintenanceEvent>('maintenance_events', 'started_at', false)
 }
 
 export async function createMaintenance(input: MaintenanceInput): Promise<MaintenanceEvent> {
   if (!isSupabaseConfigured) {
-    loadDemoMaintenanceTickets()
     await wait()
-    const ticketNumber = input.ticket_type
-      ? `TT${String(++demoMaintenanceTicketSequence).padStart(5, '0')}`
-      : null
-    const row: MaintenanceEvent = {
-      id: uid(),
-      created_at: nowISO(),
-      ...input,
-      ticket_number: ticketNumber,
-      update_comments: input.update_comments ?? [],
-    }
+    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), ticket_number: null, circuit_id: null, ...input }
     demoMaintenance.unshift(row)
-    persistDemoMaintenanceTickets()
     return row
   }
   return sbInsert<MaintenanceEvent>('maintenance_events', { ...input })
 }
 
+/**
+ * Create a trouble ticket with an auto reference number following the
+ * operator standard: TT-YYYY-NNN (e.g. TT-2026-001), incremented per year.
+ */
+export async function createTroubleTicket(input: MaintenanceInput): Promise<MaintenanceEvent> {
+  const year = new Date().getFullYear()
+  if (!isSupabaseConfigured) {
+    await wait()
+    const maxSeq = demoMaintenance.reduce((m, e) => {
+      const match = new RegExp(`^TT-${year}-(\\d+)$`).exec(e.ticket_number ?? '')
+      return match ? Math.max(m, Number(match[1])) : m
+    }, 0)
+    const ticket_number = `TT-${year}-${String(maxSeq + 1).padStart(3, '0')}`
+    const row: MaintenanceEvent = { id: uid(), created_at: nowISO(), circuit_id: null, ticket_number, ...input }
+    demoMaintenance.unshift(row)
+    return row
+  }
+  const all = await fetchMaintenance()
+  const maxSeq = all.reduce((m, e) => {
+    const match = new RegExp(`^TT-${year}-(\\d+)$`).exec(e.ticket_number ?? '')
+    return match ? Math.max(m, Number(match[1])) : m
+  }, 0)
+  const ticket_number = `TT-${year}-${String(maxSeq + 1).padStart(3, '0')}`
+  return sbInsert<MaintenanceEvent>('maintenance_events', { ...input, ticket_number })
+}
+
 export async function updateMaintenance(id: string, input: Partial<MaintenanceInput>): Promise<MaintenanceEvent> {
   if (!isSupabaseConfigured) {
-    loadDemoMaintenanceTickets()
     await wait()
     const i = demoMaintenance.findIndex((m) => m.id === id)
     if (i === -1) throw new Error('Not found')
     demoMaintenance[i] = { ...demoMaintenance[i], ...input }
-    persistDemoMaintenanceTickets()
     return demoMaintenance[i]
   }
   return sbUpdate<MaintenanceEvent>('maintenance_events', id, { ...input })
@@ -322,11 +381,9 @@ export async function updateMaintenance(id: string, input: Partial<MaintenanceIn
 
 export async function deleteMaintenance(id: string): Promise<void> {
   if (!isSupabaseConfigured) {
-    loadDemoMaintenanceTickets()
     await wait()
     const i = demoMaintenance.findIndex((m) => m.id === id)
     if (i !== -1) demoMaintenance.splice(i, 1)
-    persistDemoMaintenanceTickets()
     return
   }
   return sbDelete('maintenance_events', id)
@@ -462,4 +519,128 @@ export async function updatePhase(id: string, input: Partial<ProjectPhase>): Pro
     return demoPhases[i]
   }
   return sbUpdate<ProjectPhase>('project_phases', id, { ...input })
+}
+
+// ---------- Capacity entitlements ----------
+// Source of truth: operator capacity spreadsheet (party × route × fiber pair).
+// The app keeps provisioned_* in sync: activation approval → +bandwidth,
+// deactivation approval → −bandwidth. Submissions are validated against the
+// remaining capacity (entitled − provisioned).
+
+export async function fetchCapacity(): Promise<CapacityEntitlement[]> {
+  if (!isSupabaseConfigured) return wait().then(() => [])
+  return sbList<CapacityEntitlement>('capacity_entitlements', 'created_at', false)
+}
+
+/** Import upsert: matches on the (operator, A, B, FP) unique key. */
+export async function upsertCapacityEntitlement(input: CapacityEntitlementInput): Promise<CapacityEntitlement> {
+  if (!isSupabaseConfigured) {
+    await wait()
+    throw new Error('Capacity import requires Supabase')
+  }
+  const { data: existing, error: findError } = await getSupabase()
+    .from('capacity_entitlements')
+    .select('*')
+    .eq('operator_id', input.operator_id)
+    .eq('station_a_id', input.station_a_id)
+    .eq('station_b_id', input.station_b_id)
+    .eq('fp_pair', input.fp_pair)
+    .maybeSingle()
+  if (findError) throw new Error(findError.message)
+  if (existing) return sbUpdate<CapacityEntitlement>('capacity_entitlements', existing.id, { ...input })
+  return sbInsert<CapacityEntitlement>('capacity_entitlements', { ...input })
+}
+
+/** Edit the rights (entitlement / day-1 plan / FP / DLS) of one capacity row. */
+export async function updateCapacityEntitlement(
+  id: string,
+  input: Partial<CapacityEntitlementInput>,
+): Promise<CapacityEntitlement> {
+  if (!isSupabaseConfigured) {
+    await wait()
+    throw new Error('Capacity editing requires Supabase')
+  }
+  return sbUpdate<CapacityEntitlement>('capacity_entitlements', id, { ...input })
+}
+
+/**
+ * Create (or return the existing) work order for a request, numbering it with
+ * the operator standard: WO + 7 digits (e.g. WO0000128). Used by the manual
+ * "Create work order" button and by the automatic activation flow.
+ */
+export async function createWorkOrderForRequest(
+  request: CircuitRequest,
+  openStatusId: string,
+): Promise<WorkOrder> {
+  const existing = await fetchWorkOrders()
+  const already = existing.find((w) => w.request_id === request.id)
+  if (already) return already
+  const maxSeq = existing.reduce((m, w) => {
+    const match = /(\d+)$/.exec(w.number)
+    return match ? Math.max(m, Number(match[1])) : m
+  }, 0)
+  const number = `WO${String(maxSeq + 1).padStart(7, '0')}`
+  return createWorkOrder({ number, request_id: request.id, status_id: openStatusId, assigned_to: null })
+}
+
+/**
+ * Remaining entitled capacity (Gbps) for a party on a route — the entitlement
+ * summed over both fiber pairs, minus what is already provisioned. Routes are
+ * direction-agnostic (A→B matches B→A). Returns null when no entitlement row
+ * exists for that (operator, route) — validation is then skipped.
+ */
+export function remainingCapacity(
+  rows: CapacityEntitlement[],
+  operatorId: string,
+  stationAId: string,
+  stationBId: string,
+): number | null {
+  const matching = rows.filter(
+    (r) =>
+      r.operator_id === operatorId &&
+      ((r.station_a_id === stationAId && r.station_b_id === stationBId) ||
+        (r.station_a_id === stationBId && r.station_b_id === stationAId)),
+  )
+  if (matching.length === 0) return null
+  return matching.reduce(
+    (sum, r) => sum + Number(r.entitlement_gbps) - Number(r.provisioned_10g_gbps) - Number(r.provisioned_100g_gbps),
+    0,
+  )
+}
+
+/**
+ * Move `deltaGbps` (positive = activation, negative = deactivation) on the
+ * entitlement row with the most remaining capacity for that (operator, route),
+ * so counters always track real circuits. Returns the updated row, or null
+ * when no entitlement exists (nothing to sync).
+ */
+export async function applyCapacityDelta(
+  operatorId: string,
+  stationAId: string,
+  stationBId: string,
+  deltaGbps: number,
+): Promise<CapacityEntitlement | null> {
+  if (!isSupabaseConfigured) return null
+  const rows = await fetchCapacity()
+  const candidates = rows
+    .filter(
+      (r) =>
+        r.operator_id === operatorId &&
+        ((r.station_a_id === stationAId && r.station_b_id === stationBId) ||
+          (r.station_a_id === stationBId && r.station_b_id === stationAId)),
+    )
+    .sort((a, b) => {
+      const rem = (r: CapacityEntitlement) =>
+        Number(r.entitlement_gbps) - Number(r.provisioned_10g_gbps) - Number(r.provisioned_100g_gbps)
+      return deltaGbps >= 0 ? rem(b) - rem(a) : rem(a) - rem(b)
+    })
+  const target = candidates[0]
+  if (!target) return null
+
+  // 10G slice absorbs 10G-or-less deltas; anything bigger goes to the 100G slice.
+  const use100 = deltaGbps > 10 || deltaGbps < -10
+  const payload = use100
+    ? { provisioned_100g_gbps: Number(target.provisioned_100g_gbps) + deltaGbps }
+    : { provisioned_10g_gbps: Number(target.provisioned_10g_gbps) + deltaGbps }
+  return sbUpdate<CapacityEntitlement>('capacity_entitlements', target.id, payload)
 }

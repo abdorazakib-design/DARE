@@ -1,19 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Inbox, Mail, Printer, Send, Wrench, XCircle } from 'lucide-react'
+import { CheckCircle2, FileText, History, Inbox, Send, Wrench, XCircle } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createCircuit, createRequest, createWorkOrder, fetchCircuits, fetchRequests, fetchWorkOrders, updateRequestStatus } from '@/data/api'
-import type { Circuit, CircuitInput, CircuitRequest } from '@/lib/types'
+import { applyCapacityDelta, createRequest, createWorkOrderForRequest, fetchCapacity, fetchCircuits, fetchRequests, fetchWorkOrders, provisionCircuitFromRequest, remainingCapacity, reserveCircuitRef, updateRequestDetails, updateRequestStatus } from '@/data/api'
+import { buildCircuitRefPrefix, formatCircuitRef, isCompletePrefix, nextSequence } from '@/lib/circuitRef'
+import { resolveSessionUser } from '@/lib/sessionUser'
+import type { AppUser } from '@/lib/types'
+import type { CapacityEntitlement, Circuit, CircuitRequest, WorkOrder } from '@/lib/types'
 import { Button, Card, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
 import { Modal, useToast } from '@/components/ui/feedback'
+import { ActivationRecap } from '@/components/ActivationRecap'
+import { WorkOrderDoc } from '@/components/WorkOrderDoc'
 import { StatusBadge } from '@/components/badges'
-import { fmtDate, fmtDateTime, nextWorkOrderNumber, todayISO } from '@/lib/utils'
+import { fmtDate, fmtDateTime, todayISO } from '@/lib/utils'
 
 interface FormState {
   type_id: string
-  requested_by: string
   requested_date: string
+  designation: string
   circuit_ref: string
   operator_id: string
   station_a_id: string
@@ -29,26 +34,10 @@ interface FormState {
   new_restoration_id: string
 }
 
-interface ActivationConfirmation {
-  designation: string
-  circuitRef: string
-  requestingParty: string
-  stationA: string
-  stationB: string
-  bandwidth: string
-  capacity: number
-  interfaceType: string
-  restoration: string
-  requestedBy: string
-  requestedDate: string
-  workOrder: string | null
-  approved: boolean
-}
-
 const initialForm: FormState = {
   type_id: '',
-  requested_by: '',
   requested_date: todayISO(),
+  designation: '',
   circuit_ref: '',
   operator_id: '',
   station_a_id: '',
@@ -67,9 +56,6 @@ const initialForm: FormState = {
 const designationCode = (code: string) =>
   code.trim().toUpperCase() === 'DJIBOUTI TELECOM' ? 'DJB' : code.trim().slice(0, 3).toUpperCase()
 
-const escapeHtml = (value: string) =>
-  value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
-
 export default function CircuitRequest() {
   const { t, lang, pick } = useI18n()
   const { refs, maps, version, bump } = useData()
@@ -77,14 +63,28 @@ export default function CircuitRequest() {
   const [requests, setRequests] = useState<CircuitRequest[] | null>(null)
   const [circuits, setCircuits] = useState<Circuit[] | null>(null)
   const [form, setForm] = useState<FormState>(initialForm)
+  /** The session user — auto-detected, read-only (never typed). */
+  const [sessionUser, setSessionUser] = useState<AppUser | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [selected, setSelected] = useState<CircuitRequest | null>(null)
   const [acting, setActing] = useState(false)
-  const [activationConfirmation, setActivationConfirmation] = useState<ActivationConfirmation | null>(null)
+  // The request history is hidden by default (kept reachable for approvals).
+  const [showHistory, setShowHistory] = useState(false)
+  /** End-of-process activation summary (print / email to the requester). */
+  const [recap, setRecap] = useState<CircuitRequest | null>(null)
+  /** Work order document shown right after a WO is created from a request. */
+  const [woDoc, setWoDoc] = useState<{ wo: WorkOrder; request: CircuitRequest } | null>(null)
+  /** All work orders — used to detect an existing WO for a request. */
+  const [workOrders, setWorkOrders] = useState<WorkOrder[] | null>(null)
+  /** Capacity entitlements — activation submissions are validated against them. */
+  const [capacity, setCapacity] = useState<CapacityEntitlement[] | null>(null)
 
   useEffect(() => {
     fetchRequests().then(setRequests).catch((e: unknown) => push(e instanceof Error ? e.message : t.common.error, 'error'))
     fetchCircuits().then(setCircuits).catch(() => undefined)
+    fetchWorkOrders().then(setWorkOrders).catch(() => undefined)
+    fetchCapacity().then(setCapacity).catch(() => undefined)
+    resolveSessionUser().then(setSessionUser).catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
 
@@ -94,25 +94,102 @@ export default function CircuitRequest() {
   const pickedCircuit = circuits?.find((c) => c.id === form.circuit_id) ?? null
   const statusBy = (c: string) => refs?.statuses.find((s) => s.code === c && s.scope === 'request')
 
+  // Auto-generated circuit ID (activation requests): stable, self-describing
+  // prefix derived from the selected operator / route / capacity / interface /
+  // restoration — e.g. SOMT/DJI/MOG/10G/100GE/R/001
+  const refPrefix = useMemo(() => {
+    if (!isActivation || !maps) return ''
+    const operator = maps.operatorById.get(form.operator_id)
+    const stationA = maps.stationById.get(form.station_a_id)
+    const stationB = maps.stationById.get(form.station_b_id)
+    const bandwidth = maps.bandwidthById.get(form.bandwidth_id)
+    const iface = maps.interfaceById.get(form.interface_type_id)
+    const restoration = maps.restorationById.get(form.restoration_type_id)
+    if (!operator || !stationA || !stationB || !bandwidth || !iface || !restoration) return ''
+    return buildCircuitRefPrefix({
+      operatorCode: operator.code,
+      stationACode: stationA.code,
+      stationBCode: stationB.code,
+      bandwidthLabel: bandwidth.label,
+      interfaceLabel: iface.label,
+      restorationCode: restoration.code,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isActivation,
+    maps,
+    form.operator_id,
+    form.station_a_id,
+    form.station_b_id,
+    form.bandwidth_id,
+    form.interface_type_id,
+    form.restoration_type_id,
+  ])
+
+  /** Live preview of the ID that will be reserved on submit. */
+  const refPreview = useMemo(() => {
+    if (!refPrefix) return ''
+    return formatCircuitRef(
+      refPrefix,
+      nextSequence(refPrefix, [
+        ...(circuits ?? []).map((c) => c.circuit_ref),
+        ...(requests ?? []).map((r) => r.circuit_ref),
+      ]),
+    )
+  }, [refPrefix, circuits, requests])
+
+  const designationPreview = useMemo(() => {
+    if (!isActivation || !maps || !requests) return ''
+    const operator = maps.operatorById.get(form.operator_id)
+    const stationA = maps.stationById.get(form.station_a_id)
+    const stationB = maps.stationById.get(form.station_b_id)
+    const bandwidth = maps.bandwidthById.get(form.bandwidth_id)
+    const iface = maps.interfaceById.get(form.interface_type_id)
+    if (!operator || !stationA || !stationB || !bandwidth || !iface) return ''
+
+    const activationTypeIds = new Set(
+      (refs?.requestTypes ?? []).filter((row) => row.code === 'activation').map((row) => row.id),
+    )
+    const latestSequence = (requests ?? []).reduce((latest, request) => {
+      if (!activationTypeIds.has(request.request_type_id)) return latest
+      const match = request.circuit_designation?.match(/\/(\d{4,5})$/)
+      return match ? Math.max(latest, Number(match[1])) : latest
+    }, 0)
+    return [
+      designationCode(operator.code),
+      designationCode(stationA.code),
+      designationCode(stationB.code),
+      bandwidth.label,
+      iface.label,
+      String(latestSequence + 1).padStart(4, '0'),
+    ].join('/')
+  }, [isActivation, maps, form.operator_id, form.station_a_id, form.station_b_id, form.bandwidth_id, form.interface_type_id, requests, refs])
+
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const onPickCircuit = (id: string) => {
-    set('circuit_id', id)
+    const c = circuits?.find((x) => x.id === id) ?? null
+    setForm((f) => ({ ...f, circuit_id: id, designation: c?.designation ?? f.designation, circuit_ref: c?.circuit_ref ?? f.circuit_ref }))
   }
 
   const submit = async () => {
     if (!refs || !type) return
     const pending = statusBy('pending')
-    if (!pending || !form.requested_by.trim() || !form.requested_date) {
+    if (!pending || !form.requested_date) {
       push(t.request.invalid, 'error')
       return
     }
-    let designation: string | null = null
-    let ref: string | null = form.circuit_ref.trim() || null
+    if (!sessionUser) {
+      push(t.request.noSessionUser, 'error')
+      return
+    }
+    let designation = isActivation ? designationPreview : form.designation.trim()
+    let ref = form.circuit_ref.trim()
     let details: Record<string, unknown> = {}
     if (isActivation) {
       if (
-        !ref ||
+        !designation ||
+        !isCompletePrefix(refPrefix) ||
         !form.operator_id ||
         !form.station_a_id ||
         !form.station_b_id ||
@@ -124,6 +201,9 @@ export default function CircuitRequest() {
         push(t.request.invalid, 'error')
         return
       }
+      // The circuit ID is never typed by the user: it is reserved atomically
+      // on submit (see reserveCircuitRef) so concurrent requests can't clash.
+      ref = ''
       details = {
         operator_id: form.operator_id,
         station_a_id: form.station_a_id,
@@ -152,66 +232,85 @@ export default function CircuitRequest() {
     }
     setSubmitting(true)
     try {
-      let activationFields: Omit<ActivationConfirmation, 'workOrder' | 'approved'> | null = null
+      // --- Activation: fully automatic decision based on remaining capacity ---
       if (isActivation) {
-        const operator = refs.operators.find((row) => row.id === form.operator_id)
-        const operatorCode = refs.operators.find((row) => row.id === form.operator_id)?.code
-        const stationA = refs.stations.find((row) => row.id === form.station_a_id)
-        const stationB = refs.stations.find((row) => row.id === form.station_b_id)
-        const bandwidth = refs.bandwidths.find((row) => row.id === form.bandwidth_id)
-        const interfaceType = refs.interfaceTypes.find((row) => row.id === form.interface_type_id)
-        const restoration = refs.restorationTypes.find((row) => row.id === form.restoration_type_id)
-        if (!operator || !operatorCode || !stationA || !stationB || !bandwidth || !interfaceType || !restoration) {
-          throw new Error(t.request.invalid)
+        // The circuit ID is reserved in every case — even rejected requests
+        // keep their ID for traceability (the number is never reused).
+        ref = await reserveCircuitRef(refPrefix)
+        const needed = (refs.bandwidths.find((b) => b.id === form.bandwidth_id)?.value_gbps ?? 0) * form.quantity
+        const remaining = capacity ? remainingCapacity(capacity, form.operator_id, form.station_a_id, form.station_b_id) : null
+        const hasCapacity = remaining === null || needed <= remaining
+        const approvedStatus = statusBy('approved')
+        const rejectedStatus = statusBy('rejected')
+
+        if (hasCapacity && approvedStatus) {
+          // AUTO-APPROVE: provision the circuit, sync counters, issue the WO.
+          details.approved_at = new Date().toISOString()
+          details.approved_by = sessionUser.full_name
+          const created = await createRequest({
+            request_type_id: type.id,
+            status_id: approvedStatus.id,
+            circuit_designation: designation,
+            circuit_ref: ref,
+            details,
+            requested_by: sessionUser.full_name,
+            requested_date: form.requested_date,
+          })
+          const active = refs.statuses.find((s) => s.code === 'active' && s.scope === 'circuit')
+          if (active) await provisionCircuitFromRequest(created, active.id).catch(() => null)
+          await applyCapacityDelta(form.operator_id, form.station_a_id, form.station_b_id, needed).catch(() => null)
+          const openWo = refs.statuses.find((s) => s.code === 'open' && s.scope === 'work_order')
+          if (!openWo) throw new Error(t.request.invalid)
+          const wo = await createWorkOrderForRequest(created, openWo.id)
+          push(t.request.autoApproved(wo.number, designation))
+          setForm({ ...initialForm, requested_date: todayISO() })
+          setShowHistory(true)
+          setRecap(created)
+          if (wo) setWoDoc({ wo, request: created })
+          bump()
+          return
         }
 
-        const existingRequests = await fetchRequests()
-        const activationTypeIds = new Set(refs.requestTypes.filter((row) => row.code === 'activation').map((row) => row.id))
-        const latestSequence = existingRequests.reduce((latest, request) => {
-          if (!activationTypeIds.has(request.request_type_id)) return latest
-          const match = request.circuit_designation?.match(/\/(\d{4,5})$/)
-          return match ? Math.max(latest, Number(match[1])) : latest
-        }, 0)
-        if (latestSequence >= 9999) throw new Error(t.request.invalid)
-
-        designation = [
-          designationCode(operatorCode),
-          designationCode(stationA.code),
-          designationCode(stationB.code),
-          bandwidth.label,
-          interfaceType.label,
-          String(latestSequence + 1).padStart(4, '0'),
-        ].join('/')
-        activationFields = {
-          designation,
-          circuitRef: ref ?? '',
-          requestingParty: operator.name,
-          stationA: stationA.name,
-          stationB: stationB.name,
-          bandwidth: bandwidth.label,
-          capacity: form.quantity,
-          interfaceType: interfaceType.label,
-          restoration: restoration.label,
-          requestedBy: form.requested_by.trim(),
-          requestedDate: form.requested_date,
+        if (!hasCapacity && rejectedStatus) {
+          // AUTO-REJECT: recorded with the reserved circuit ID + the reason.
+          details.rejection_reason = 'capacity'
+          details.rejection_needed_gbps = needed
+          details.rejection_remaining_gbps = remaining
+          const created = await createRequest({
+            request_type_id: type.id,
+            status_id: rejectedStatus.id,
+            circuit_designation: designation,
+            circuit_ref: ref,
+            details,
+            requested_by: sessionUser.full_name,
+            requested_date: form.requested_date,
+          })
+          push(t.request.autoRejected(needed, remaining ?? 0), 'error')
+          setForm({ ...initialForm, requested_date: todayISO() })
+          setShowHistory(true)
+          setRecap(created)
+          bump()
+          return
         }
+        // Fallback (status rows missing): keep the manual pending flow below.
       }
 
-      await createRequest({
+      if (isActivation) ref = await reserveCircuitRef(refPrefix)
+      const created = await createRequest({
         request_type_id: type.id,
         status_id: pending.id,
         circuit_designation: designation,
         circuit_ref: ref,
         details,
-        requested_by: form.requested_by.trim(),
+        requested_by: sessionUser.full_name,
         requested_date: form.requested_date,
       })
-      if (isActivation && activationFields) {
-        setActivationConfirmation({ ...activationFields, workOrder: null, approved: false })
-      } else {
-        push(t.request.submitted(pick(type)))
-      }
-      setForm({ ...initialForm, requested_date: todayISO(), requested_by: form.requested_by })
+      push(t.request.submitted(pick(type)))
+      setForm({ ...initialForm, requested_date: todayISO() })
+      // Reveal the history so the new request is visibly listed right away.
+      setShowHistory(true)
+      // Show the confirmation sheet right away (status: pending approval).
+      if (isActivation) setRecap(created)
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -220,22 +319,67 @@ export default function CircuitRequest() {
     }
   }
 
-  const createWO = async (r: CircuitRequest) => {
-    if (!refs) return
-    const open = refs.statuses.find((s) => s.code === 'open' && s.scope === 'work_order')
-    if (!open) return
+  const setStatus = async (r: CircuitRequest, statusCode: string) => {
+    const st = statusBy(statusCode)
+    if (!st) return
     setActing(true)
     try {
-      const orders = await fetchWorkOrders()
-      const existing = orders.find((order) => order.request_id === r.id)
-      if (existing) {
-        push(t.request.workOrderAlreadyExists(existing.number))
-        return
+      const updated: CircuitRequest = { ...r, status_id: st.id }
+      const isActivationRequest = maps?.requestTypeById.get(r.request_type_id)?.code === 'activation'
+      let approvedWorkOrder: WorkOrder | null = null
+      if (statusCode === 'approved' && isActivationRequest) {
+        const openStatus = refs?.statuses.find((status) => status.code === 'open' && status.scope === 'work_order')
+        if (!openStatus) throw new Error(t.request.invalid)
+        approvedWorkOrder = await createWorkOrderForRequest(r, openStatus.id)
       }
-      const number = nextWorkOrderNumber(orders.map((order) => order.number))
-      if (!number) throw new Error(t.request.invalid)
-      await createWorkOrder({ number, request_id: r.id, status_id: open.id, assigned_to: null })
-      push(t.request.workOrderCreated(number))
+      await updateRequestStatus(r.id, st.id)
+      const firstApproval = statusCode === 'approved' && typeof r.details?.approved_at !== 'string'
+      // Stamp the approval time once — the recap shows it as "Approval Date".
+      if (firstApproval) {
+        updated.details = { ...r.details, approved_at: new Date().toISOString(), approved_by: sessionUser?.full_name ?? null }
+        await updateRequestDetails(r.id, updated.details)
+      }
+      // Keep the capacity entitlement counters in sync (first approval only):
+      // activation → +bandwidth on the party's route, deactivation → −bandwidth.
+      if (firstApproval) {
+        const d = (r.details ?? {}) as Record<string, unknown>
+        const str = (k: string): string => (typeof d[k] === 'string' ? (d[k] as string) : '')
+        const qty = typeof d.quantity === 'number' ? d.quantity : Number(d.quantity ?? 1) || 1
+        const typeCode = maps?.requestTypeById.get(r.request_type_id)?.code
+        if (typeCode === 'activation') {
+          const bw = refs?.bandwidths.find((b) => b.id === str('bandwidth_id'))
+          if (bw && str('operator_id') && str('station_a_id') && str('station_b_id')) {
+            await applyCapacityDelta(str('operator_id'), str('station_a_id'), str('station_b_id'), bw.value_gbps * qty).catch(() => null)
+          }
+        } else if (typeCode === 'deactivation' && r.circuit_ref) {
+          const c = (circuits ?? []).find((x) => x.circuit_ref === r.circuit_ref)
+          const bw = c ? refs?.bandwidths.find((b) => b.id === c.bandwidth_id) : undefined
+          if (c && bw) {
+            await applyCapacityDelta(c.operator_id, c.station_a_id, c.station_b_id, -(bw.value_gbps * c.quantity)).catch(() => null)
+          }
+        }
+      }
+      // Approving (or completing) a "New Circuit Activation" request provisions
+      // the real circuit so it appears in the Circuit List.
+      if (statusCode === 'approved' || statusCode === 'completed') {
+        const active = refs?.statuses.find((s) => s.code === 'active' && s.scope === 'circuit')
+        if (isActivation && active) {
+          const created = await provisionCircuitFromRequest(r, active.id)
+          if (created) push(t.request.circuitProvisioned(created.circuit_ref))
+        }
+      }
+      if (approvedWorkOrder) {
+        const workOrder = approvedWorkOrder
+        setWorkOrders((current) => [workOrder, ...(current ?? []).filter((wo) => wo.id !== workOrder.id)])
+        setWoDoc({ wo: workOrder, request: updated })
+        setSelected(null)
+        push(t.request.workOrderCreatedForCircuit(workOrder.number, r.circuit_designation ?? ''))
+      } else {
+        push(t.request.statusUpdated)
+      }
+      if (selected?.id === r.id) setSelected(updated)
+      // End of the activation process → show the recap (print / email) automatically.
+      if (isActivation && (statusCode === 'approved' || statusCode === 'completed')) setRecap(updated)
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -244,139 +388,25 @@ export default function CircuitRequest() {
     }
   }
 
-  const ensureActivationWorkOrder = async (r: CircuitRequest): Promise<string> => {
-    if (!refs) throw new Error(t.common.error)
-    const orders = await fetchWorkOrders()
-    const existing = orders.find((order) => order.request_id === r.id)
-    if (existing) return existing.number
-
-    const open = refs.statuses.find((status) => status.code === 'open' && status.scope === 'work_order')
-    const number = nextWorkOrderNumber(orders.map((order) => order.number))
-    if (!open || !number) throw new Error(t.request.invalid)
-    await createWorkOrder({ number, request_id: r.id, status_id: open.id, assigned_to: null })
-    return number
-  }
-
-  const activationConfirmationFor = (
-    r: CircuitRequest,
-    workOrder: string | null,
-    approved: boolean,
-  ): ActivationConfirmation => {
-    if (!refs) throw new Error(t.common.error)
-    const details = r.details
-    const operator = typeof details.operator_id === 'string' ? maps?.operatorById.get(details.operator_id) : undefined
-    const stationA = typeof details.station_a_id === 'string' ? maps?.stationById.get(details.station_a_id) : undefined
-    const stationB = typeof details.station_b_id === 'string' ? maps?.stationById.get(details.station_b_id) : undefined
-    const bandwidth = typeof details.bandwidth_id === 'string' ? maps?.bandwidthById.get(details.bandwidth_id) : undefined
-    const interfaceType = typeof details.interface_type_id === 'string' ? maps?.interfaceById.get(details.interface_type_id) : undefined
-    const restoration = typeof details.restoration_type_id === 'string' ? maps?.restorationById.get(details.restoration_type_id) : undefined
-    const quantity = details.quantity
-    if (!operator || !stationA || !stationB || !bandwidth || !interfaceType || !restoration || typeof quantity !== 'number') {
-      throw new Error(t.request.invalid)
+  const createWO = async (r: CircuitRequest) => {
+    if (!refs) return
+    // A WO already exists for this request → just reopen its document.
+    const existingWo = (workOrders ?? []).find((w) => w.request_id === r.id)
+    if (existingWo) {
+      setWoDoc({ wo: existingWo, request: r })
+      return
     }
-    return {
-      designation: r.circuit_designation ?? r.circuit_ref ?? '',
-      circuitRef: r.circuit_ref ?? '',
-      requestingParty: operator.name,
-      stationA: stationA.name,
-      stationB: stationB.name,
-      bandwidth: bandwidth.label,
-      capacity: quantity,
-      interfaceType: interfaceType.label,
-      restoration: restoration.label,
-      requestedBy: r.requested_by,
-      requestedDate: r.requested_date ?? r.created_at,
-      workOrder,
-      approved,
-    }
-  }
-
-  const createActivationCircuit = async (r: CircuitRequest) => {
-    if (!refs) throw new Error(t.common.error)
-
-    const circuitRef = r.circuit_ref?.trim()
-    const details = r.details
-    const operatorId = details.operator_id
-    const stationAId = details.station_a_id
-    const stationBId = details.station_b_id
-    const bandwidthId = details.bandwidth_id
-    const interfaceTypeId = details.interface_type_id
-    const restorationTypeId = details.restoration_type_id
-    const quantity = details.quantity
-    const active = refs.statuses.find((s) => s.code === 'active' && s.scope === 'circuit')
-
-    if (
-      !circuitRef ||
-      typeof operatorId !== 'string' ||
-      typeof stationAId !== 'string' ||
-      typeof stationBId !== 'string' ||
-      stationAId === stationBId ||
-      typeof bandwidthId !== 'string' ||
-      typeof interfaceTypeId !== 'string' ||
-      typeof restorationTypeId !== 'string' ||
-      typeof quantity !== 'number' ||
-      !Number.isInteger(quantity) ||
-      quantity < 1 ||
-      !active
-    ) {
-      throw new Error(t.request.invalid)
-    }
-
-    const input: CircuitInput = {
-      designation: r.circuit_designation?.trim() || circuitRef,
-      circuit_ref: circuitRef,
-      operator_id: operatorId,
-      station_a_id: stationAId,
-      station_b_id: stationBId,
-      bandwidth_id: bandwidthId,
-      interface_type_id: interfaceTypeId,
-      quantity,
-      restoration_type_id: restorationTypeId,
-      status_id: active.id,
-      requested_by: r.requested_by,
-      activated_at: todayISO(),
-    }
-
-    const existing = (await fetchCircuits()).find((c) => c.circuit_ref === circuitRef)
-    if (existing) {
-      const isSameCircuit =
-        existing.designation === input.designation &&
-        existing.operator_id === input.operator_id &&
-        existing.station_a_id === input.station_a_id &&
-        existing.station_b_id === input.station_b_id &&
-        existing.bandwidth_id === input.bandwidth_id &&
-        existing.interface_type_id === input.interface_type_id &&
-        existing.restoration_type_id === input.restoration_type_id &&
-        existing.quantity === input.quantity &&
-        existing.requested_by === input.requested_by
-      if (isSameCircuit) return
-      throw new Error(t.request.invalid)
-    }
-
-    await createCircuit(input)
-  }
-
-  const setStatus = async (r: CircuitRequest, statusCode: string) => {
-    const st = statusBy(statusCode)
-    if (!st) return
+    const open = refs.statuses.find((s) => s.code === 'open' && s.scope === 'work_order')
+    if (!open) return
     setActing(true)
     try {
-      const isActivationRequest = maps?.requestTypeById.get(r.request_type_id)?.code === 'activation'
-      let activationWorkOrder: string | null = null
-      if (statusCode === 'approved' && isActivationRequest) {
-        activationWorkOrder = await ensureActivationWorkOrder(r)
-      }
-      if (statusCode === 'completed' && maps?.requestTypeById.get(r.request_type_id)?.code === 'activation') {
-        await createActivationCircuit(r)
-      }
-      await updateRequestStatus(r.id, st.id)
-      if (statusCode === 'approved' && isActivationRequest && activationWorkOrder) {
-        setActivationConfirmation(activationConfirmationFor(r, activationWorkOrder, true))
-        setSelected(null)
-      } else {
-        push(t.request.statusUpdated)
-        if (selected?.id === r.id) setSelected({ ...r, status_id: st.id })
-      }
+      // Reference format follows the operator standard: WO + 7 digits (e.g. WO0000128).
+      const existing = await fetchWorkOrders()
+      const wo = await createWorkOrderForRequest(r, open.id)
+      push(t.request.workOrderCreatedForCircuit(wo.number, r.circuit_designation ?? ''))
+      // Open the work order document (print / email to the requester).
+      setWoDoc({ wo, request: r })
+      setWorkOrders([wo, ...existing])
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -444,58 +474,36 @@ export default function CircuitRequest() {
 
   const selectedStatus = selected ? maps?.statusById.get(selected.status_id)?.code : undefined
   const canDecide = selectedStatus === 'pending' || selectedStatus === 'in-review'
-  const confirmationRows = activationConfirmation
-    ? [
-        [t.request.circuitRef, activationConfirmation.circuitRef],
-        [t.request.operator, activationConfirmation.requestingParty],
-        [t.request.stationA, activationConfirmation.stationA],
-        [t.request.stationB, activationConfirmation.stationB],
-        [t.request.bandwidth, activationConfirmation.bandwidth],
-        [t.request.capacity, String(activationConfirmation.capacity)],
-        [t.request.interface, activationConfirmation.interfaceType],
-        [t.request.restoration, activationConfirmation.restoration],
-        [t.request.requestedBy, activationConfirmation.requestedBy],
-        [t.request.requestedDate, fmtDate(activationConfirmation.requestedDate, lang)],
-        ...(activationConfirmation.workOrder ? [[t.request.workOrder, activationConfirmation.workOrder]] : []),
-        [t.common.status, activationConfirmation.approved ? t.request.activationApproved : t.request.activationRequestPending],
-      ]
-    : []
 
-  const sendActivationEmail = () => {
-    if (!activationConfirmation) return
-    const subject = t.request.activationConfirmationTitle(activationConfirmation.designation)
-    const body = [
-      t.request.activationConfirmationMessage(activationConfirmation.designation, activationConfirmation.workOrder),
-      '',
-      ...confirmationRows.map(([label, value]) => `${label}: ${value}`),
-    ].join('\n')
-    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-  }
-
-  const printActivationConfirmation = () => {
-    if (!activationConfirmation) return
-    const printWindow = window.open('', '_blank', 'width=800,height=700')
-    if (!printWindow) {
-      push(t.request.printPopupBlocked, 'error')
-      return
-    }
-    const rows = confirmationRows
-      .map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`)
-      .join('')
-    printWindow.document.write(
-      `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>${escapeHtml(t.request.activationConfirmationTitle(activationConfirmation.designation))}</title><style>body{font:16px Arial,sans-serif;color:#111;margin:40px}h1{font-size:22px}table{border-collapse:collapse;width:100%;margin-top:24px}th,td{border:1px solid #bbb;padding:10px;text-align:left}th{width:35%;background:#f2f2f2}</style></head><body><h1>${escapeHtml(t.request.activationConfirmationTitle(activationConfirmation.designation))}</h1><p>${escapeHtml(t.request.activationConfirmationMessage(activationConfirmation.designation, activationConfirmation.workOrder))}</p><table>${rows}</table></body></html>`,
-    )
-    printWindow.document.close()
-    printWindow.focus()
-    printWindow.print()
-  }
+  /**
+   * History view: completed requests are final — they drop out of the list
+   * (still reachable in the Circuit List). Everything else stays visible.
+   */
+  const historyRequests = useMemo(
+    () => (requests ?? []).filter((r) => maps?.statusById.get(r.status_id)?.code !== 'completed'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requests, maps],
+  )
 
   return (
     <div>
-      <PageHeader title={t.request.title} subtitle={t.request.subtitle} />
+      <PageHeader
+        title={t.request.title}
+        subtitle={t.request.subtitle}
+        actions={
+          <Button
+            variant={showHistory ? 'primary' : 'outline'}
+            size="sm"
+            icon={<History className="h-4 w-4" />}
+            onClick={() => setShowHistory((v) => !v)}
+          >
+            {t.request.history}
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 xl:grid-cols-5">
-        <Card title={t.request.newRequest} className="xl:col-span-2">
+        <Card title={t.request.newRequest} className={showHistory ? 'xl:col-span-2' : 'xl:col-span-5'}>
           <div className="space-y-4">
             <Select
               label={t.request.requestType}
@@ -513,13 +521,24 @@ export default function CircuitRequest() {
 
             {isActivation ? (
               <div className="grid gap-4 sm:grid-cols-2">
-                <TextInput label={t.request.circuitRef} required placeholder={t.request.circuitIdPlaceholder} className="font-mono" value={form.circuit_ref} onChange={(e) => set('circuit_ref', e.target.value)} />
-                <Select label={t.request.operator} required placeholder={t.request.chooseParty} options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))} value={form.operator_id} onChange={(e) => set('operator_id', e.target.value)} />
-                <Select label={t.request.stationA} required placeholder={t.request.chooseLandingStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_a_id} onChange={(e) => set('station_a_id', e.target.value)} />
-                <Select label={t.request.stationB} required placeholder={t.request.chooseLandingStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_b_id} onChange={(e) => set('station_b_id', e.target.value)} />
-                <Select label={t.request.bandwidth} required placeholder={t.request.chooseBandwidth} options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))} value={form.bandwidth_id} onChange={(e) => set('bandwidth_id', e.target.value)} />
-                <Select label={t.request.interface} required placeholder={t.request.chooseInterface} options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.interface_type_id} onChange={(e) => set('interface_type_id', e.target.value)} />
-                <Select label={t.request.restoration} required placeholder={t.request.chooseRestoration} options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.restoration_type_id} onChange={(e) => set('restoration_type_id', e.target.value)} />
+                <TextInput label={t.request.designation} required readOnly value={designationPreview} placeholder={t.request.autoRefPending} />
+                <div className="sm:col-span-2">
+                  <p className="mb-1.5 block text-[13px] font-medium text-slate-300">
+                    {t.request.circuitRef} <span className="font-normal text-neon-400">({t.request.autoRef})</span>
+                  </p>
+                  <div className="field flex select-none items-center justify-between gap-3" aria-readonly="true" title={t.request.autoRefHint}>
+                    <span className={`font-mono ${refPreview ? 'text-neon-300' : 'text-slate-500'}`}>
+                      {refPreview || t.request.autoRefPending}
+                    </span>
+                    <span className="text-[11px] text-slate-500">{t.request.autoRefHint}</span>
+                  </div>
+                </div>
+                <Select label={t.request.operator} required placeholder={t.request.selectOperator} options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))} value={form.operator_id} onChange={(e) => set('operator_id', e.target.value)} />
+                <Select label={t.request.stationA} required placeholder={t.request.selectStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_a_id} onChange={(e) => set('station_a_id', e.target.value)} />
+                <Select label={t.request.stationB} required placeholder={t.request.selectStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_b_id} onChange={(e) => set('station_b_id', e.target.value)} />
+                <Select label={t.request.bandwidth} required placeholder={t.request.selectBandwidth} options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))} value={form.bandwidth_id} onChange={(e) => set('bandwidth_id', e.target.value)} />
+                <Select label={t.request.interface} required placeholder={t.request.selectInterface} options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.interface_type_id} onChange={(e) => set('interface_type_id', e.target.value)} />
+                <Select label={t.request.restoration} required placeholder={t.request.selectRestoration} options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.restoration_type_id} onChange={(e) => set('restoration_type_id', e.target.value)} />
                 <TextInput label={t.common.quantity} required type="number" min={1} value={form.quantity} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value) || 1))} />
               </div>
             ) : type ? (
@@ -528,22 +547,22 @@ export default function CircuitRequest() {
                   label={t.circuits.designation}
                   required
                   className="sm:col-span-2"
-                  placeholder={t.request.selectType}
+                  placeholder={t.request.selectCircuit}
                   options={(circuits ?? []).map((c) => ({ value: c.id, label: `${c.designation} · ${c.circuit_ref}` }))}
                   value={form.circuit_id}
                   onChange={(e) => onPickCircuit(e.target.value)}
                 />
                 {code === 'backhaul-change' ? (
-                  <Select label={t.request.newProvider} required options={(refs?.providers ?? []).map((p) => ({ value: p.id, label: p.name }))} value={form.new_provider_id} onChange={(e) => set('new_provider_id', e.target.value)} />
+                  <Select label={t.request.newProvider} required placeholder={t.request.selectProvider} options={(refs?.providers ?? []).map((p) => ({ value: p.id, label: p.name }))} value={form.new_provider_id} onChange={(e) => set('new_provider_id', e.target.value)} />
                 ) : null}
                 {code === 'designation-change' ? (
                   <TextInput label={t.request.newDesignation} required value={form.new_designation} onChange={(e) => set('new_designation', e.target.value)} />
                 ) : null}
                 {code === 'interface-change' ? (
-                  <Select label={t.request.newInterface} required options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.new_interface_id} onChange={(e) => set('new_interface_id', e.target.value)} />
+                  <Select label={t.request.newInterface} required placeholder={t.request.selectInterface} options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.new_interface_id} onChange={(e) => set('new_interface_id', e.target.value)} />
                 ) : null}
                 {code === 'restoration-change' ? (
-                  <Select label={t.request.newRestoration} required options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.new_restoration_id} onChange={(e) => set('new_restoration_id', e.target.value)} />
+                  <Select label={t.request.newRestoration} required placeholder={t.request.selectRestoration} options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.new_restoration_id} onChange={(e) => set('new_restoration_id', e.target.value)} />
                 ) : null}
                 {pickedCircuit ? (
                   <p className="text-xs text-slate-500 sm:col-span-2">
@@ -556,7 +575,16 @@ export default function CircuitRequest() {
             )}
 
             <div className="grid gap-4 border-t border-white/8 pt-4 sm:grid-cols-2">
-              <TextInput label={t.request.requestedBy} required value={form.requested_by} onChange={(e) => set('requested_by', e.target.value)} />
+              {/* The session user is auto-detected and read-only — no typing allowed. */}
+              <TextInput
+                label={t.request.requestedBy}
+                required
+                disabled
+                readOnly
+                title={t.request.noSessionUser}
+                value={sessionUser?.full_name ?? t.common.loading}
+                onChange={() => undefined}
+              />
               <TextInput label={t.request.requestedDate} required type="date" value={form.requested_date} onChange={(e) => set('requested_date', e.target.value)} />
             </div>
 
@@ -566,57 +594,20 @@ export default function CircuitRequest() {
           </div>
         </Card>
 
-        <Card title={t.request.history} className="xl:col-span-3">
-          <DataTable
-            columns={columns}
-            rows={requests ?? []}
-            loading={requests === null}
-            empty={<EmptyState icon={<Inbox className="h-6 w-6" />} title={t.request.emptyHistory} hint={t.request.emptyHint} />}
-            onRowClick={setSelected}
-            getKey={(r) => r.id}
-            pageSize={6}
-          />
-        </Card>
-      </div>
-
-      <Modal
-        open={activationConfirmation !== null}
-        onClose={() => setActivationConfirmation(null)}
-        title={activationConfirmation ? t.request.activationConfirmationTitle(activationConfirmation.designation) : t.request.history}
-        size="lg"
-        footer={
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" size="sm" icon={<Printer className="h-3.5 w-3.5" />} onClick={printActivationConfirmation}>
-              {t.request.print}
-            </Button>
-            <Button variant="outline" size="sm" icon={<Mail className="h-3.5 w-3.5" />} onClick={sendActivationEmail}>
-              {t.request.sendEmail}
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => setActivationConfirmation(null)}>
-              {t.common.close}
-            </Button>
-          </div>
-        }
-      >
-        {activationConfirmation ? (
-          <div>
-            <div className="mb-5 flex items-start gap-3 rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4">
-              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" />
-              <p className="text-sm leading-relaxed text-slate-200">
-                {t.request.activationConfirmationMessage(activationConfirmation.designation, activationConfirmation.workOrder)}
-              </p>
-            </div>
-            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-              {confirmationRows.map(([label, value]) => (
-                <div key={label}>
-                  <dt className="text-[11px] font-medium tracking-wide text-slate-500 uppercase">{label}</dt>
-                  <dd className="mt-1 break-words text-sm text-slate-100">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+        {showHistory ? (
+          <Card title={t.request.history} className="xl:col-span-3">
+            <DataTable
+              columns={columns}
+              rows={historyRequests}
+              loading={requests === null}
+              empty={<EmptyState icon={<Inbox className="h-6 w-6" />} title={t.request.emptyHistory} hint={t.request.emptyHint} />}
+              onRowClick={setSelected}
+              getKey={(r) => r.id}
+              pageSize={6}
+            />
+          </Card>
         ) : null}
-      </Modal>
+      </div>
 
       <Modal
         open={selected !== null}
@@ -626,6 +617,12 @@ export default function CircuitRequest() {
         footer={
           selected ? (
             <div className="flex flex-wrap justify-end gap-2">
+              {maps?.requestTypeById.get(selected.request_type_id)?.code === 'activation' &&
+              (selectedStatus === 'approved' || selectedStatus === 'completed') ? (
+                <Button variant="outline" size="sm" icon={<FileText className="h-3.5 w-3.5" />} onClick={() => setRecap(selected)}>
+                  {t.request.viewRecap}
+                </Button>
+              ) : null}
               {canDecide ? (
                 <>
                   <Button variant="danger" size="sm" loading={acting} icon={<XCircle className="h-3.5 w-3.5" />} onClick={() => void setStatus(selected, 'rejected')}>
@@ -638,11 +635,20 @@ export default function CircuitRequest() {
               ) : null}
               {selectedStatus === 'approved' ? (
                 <>
-                  {maps?.requestTypeById.get(selected.request_type_id)?.code !== 'activation' ? (
+                  {workOrders?.some((w) => w.request_id === selected.id) ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon={<FileText className="h-3.5 w-3.5" />}
+                      onClick={() => void createWO(selected)}
+                    >
+                      {t.request.viewWorkOrder}
+                    </Button>
+                  ) : (
                     <Button variant="outline" size="sm" loading={acting} icon={<Wrench className="h-3.5 w-3.5" />} onClick={() => void createWO(selected)}>
                       {t.request.createWorkOrder}
                     </Button>
-                  ) : null}
+                  )}
                   <Button variant="primary" size="sm" loading={acting} onClick={() => void setStatus(selected, 'completed')}>
                     {t.request.complete}
                   </Button>
@@ -691,6 +697,15 @@ export default function CircuitRequest() {
           </div>
         ) : null}
       </Modal>
+
+      <ActivationRecap request={recap} onClose={() => setRecap(null)} />
+
+      <WorkOrderDoc
+        workOrder={woDoc?.wo ?? null}
+        request={woDoc?.request ?? null}
+        approvedBy={sessionUser?.full_name ?? '—'}
+        onClose={() => setWoDoc(null)}
+      />
     </div>
   )
 

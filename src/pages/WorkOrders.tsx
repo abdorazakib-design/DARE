@@ -1,34 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ClipboardList, Plus, Trash2 } from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createWorkOrder, deleteWorkOrder, fetchRequests, fetchWorkOrders, updateWorkOrder } from '@/data/api'
-import type { CircuitRequest, WorkOrder, WorkOrderInput } from '@/lib/types'
-import { Button, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
+import { fetchRequests, fetchWorkOrders } from '@/data/api'
+import type { CircuitRequest, WorkOrder } from '@/lib/types'
+import { EmptyState, PageHeader, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
-import { ConfirmDialog, Modal, useToast } from '@/components/ui/feedback'
+import { useToast } from '@/components/ui/feedback'
+import { WorkOrderDoc } from '@/components/WorkOrderDoc'
 import { StatusBadge } from '@/components/badges'
-import { fmtDateTime, nextWorkOrderNumber } from '@/lib/utils'
-
-interface FormState {
-  number: string
-  request_id: string
-  status_id: string
-  assigned_to: string
-}
+import { fmtDateTime } from '@/lib/utils'
 
 export default function WorkOrders() {
   const { t, lang, pick } = useI18n()
-  const { refs, maps, version, bump } = useData()
+  const { refs, maps, version } = useData()
   const { push } = useToast()
   const [orders, setOrders] = useState<WorkOrder[] | null>(null)
   const [requests, setRequests] = useState<CircuitRequest[] | null>(null)
   const [query, setQuery] = useState('')
-  const [editing, setEditing] = useState<WorkOrder | 'new' | null>(null)
-  const [form, setForm] = useState<FormState>({ number: '', request_id: '', status_id: '', assigned_to: '' })
-  const [saving, setSaving] = useState(false)
-  const [deleting, setDeleting] = useState<WorkOrder | null>(null)
-  const [confirmLoading, setConfirmLoading] = useState(false)
+  /** Work order document opened when a row is clicked (viewer only). */
+  const [docWo, setDocWo] = useState<WorkOrder | null>(null)
 
   useEffect(() => {
     fetchWorkOrders().then(setOrders).catch((e: unknown) => push(e instanceof Error ? e.message : t.common.error, 'error'))
@@ -36,14 +27,26 @@ export default function WorkOrders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
 
+  const requestOf = (w: WorkOrder): CircuitRequest | undefined => requests?.find((x) => x.id === w.request_id)
   const requestType = (r: CircuitRequest) => refs?.requestTypes.find((rt) => rt.id === r.request_type_id)
+  /** Approver recorded on the request details when it was approved. */
+  const approvedByOf = (r: CircuitRequest | undefined): string => {
+    const v = r?.details?.approved_by
+    return typeof v === 'string' && v ? v : '—'
+  }
 
   const filtered = useMemo(() => {
     if (!orders) return []
     const q = query.trim().toLowerCase()
     if (!q) return orders
-    return orders.filter((w) => `${w.number} ${w.assigned_to ?? ''}`.toLowerCase().includes(q))
-  }, [orders, query])
+    return orders.filter((w) => {
+      const r = requestOf(w)
+      return `${w.number} ${w.assigned_to ?? ''} ${r?.circuit_ref ?? ''} ${r?.circuit_designation ?? ''}`
+        .toLowerCase()
+        .includes(q)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, query, requests])
 
   const columns: Column<WorkOrder>[] = useMemo(
     () => [
@@ -54,18 +57,33 @@ export default function WorkOrders() {
         render: (w) => <span className="font-mono text-xs font-medium text-white">{w.number}</span>,
       },
       {
+        key: 'circuitRef',
+        header: t.circuits.ref,
+        sortValue: (w) => requestOf(w)?.circuit_ref ?? '',
+        render: (w) => {
+          const r = requestOf(w)
+          if (!r?.circuit_ref) return <span className="text-slate-500">—</span>
+          return <span className="font-mono text-xs text-neon-300">{r.circuit_ref}</span>
+        },
+      },
+      {
+        key: 'designation',
+        header: t.circuits.designation,
+        sortValue: (w) => requestOf(w)?.circuit_designation ?? '',
+        render: (w) => {
+          const r = requestOf(w)
+          if (!r?.circuit_designation) return <span className="text-slate-500">—</span>
+          return <span className="text-xs font-medium text-white">{r.circuit_designation}</span>
+        },
+      },
+      {
         key: 'request',
         header: t.workorders.request,
         sortValue: (w) => w.request_id ?? '',
         render: (w) => {
-          const r = requests?.find((x) => x.id === w.request_id)
+          const r = requestOf(w)
           if (!r) return <span className="text-slate-500">—</span>
-          return (
-            <span className="text-xs">
-              {r.circuit_designation ?? r.circuit_ref}
-              <span className="ml-1.5 text-slate-500">({pick(requestType(r))})</span>
-            </span>
-          )
+          return <span className="text-xs text-slate-400">{pick(requestType(r))}</span>
         },
       },
       {
@@ -91,78 +109,22 @@ export default function WorkOrders() {
     [t, lang, maps, requests, refs, pick],
   )
 
-  const openEdit = async (target: WorkOrder | 'new') => {
-    if (target === 'new') {
-      try {
-        const currentOrders = orders ?? await fetchWorkOrders()
-        if (!orders) setOrders(currentOrders)
-        const next = nextWorkOrderNumber(currentOrders.map((order) => order.number))
-        if (!next) throw new Error(t.request.invalid)
-        const open = maps?.statusesByScope('work_order').find((s) => s.code === 'open')
-        setForm({ number: next, request_id: '', status_id: open?.id ?? maps?.statusesByScope('work_order')[0]?.id ?? '', assigned_to: '' })
-      } catch (e) {
-        push(e instanceof Error ? e.message : t.common.error, 'error')
-        return
-      }
-    } else {
-      setForm({ number: target.number, request_id: target.request_id ?? '', status_id: target.status_id, assigned_to: target.assigned_to ?? '' })
+  /** Clicking a work order opens its document (viewer). */
+  const openDoc = (target: WorkOrder) => {
+    if (!requestOf(target)) {
+      push(t.workorders.docNoRequest, 'error')
+      return
     }
-    setEditing(target)
+    setDocWo(target)
   }
 
-  const save = async () => {
-    if (!refs) return
-    const statusId = form.status_id || maps?.statusesByScope('work_order')[0]?.id
-    if (!form.number.trim() || !statusId) return
-    setSaving(true)
-    try {
-      const payload: WorkOrderInput = {
-        number: form.number.trim(),
-        request_id: form.request_id || null,
-        status_id: statusId,
-        assigned_to: form.assigned_to.trim() || null,
-      }
-      if (editing === 'new') {
-        const created = await createWorkOrder(payload)
-        push(t.request.workOrderCreated(created.number))
-      } else if (editing) {
-        await updateWorkOrder(editing.id, payload)
-        push(t.workorders.statusUpdated)
-      }
-      setEditing(null)
-      bump()
-    } catch (e) {
-      push(e instanceof Error ? e.message : t.common.error, 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const confirmDelete = async () => {
-    if (!deleting) return
-    setConfirmLoading(true)
-    try {
-      await deleteWorkOrder(deleting.id)
-      push(t.toast.deleted(deleting.number))
-      setDeleting(null)
-      bump()
-    } catch (e) {
-      push(e instanceof Error ? e.message : t.common.error, 'error')
-    } finally {
-      setConfirmLoading(false)
-    }
-  }
+  const docRequest = docWo ? requestOf(docWo) : undefined
 
   return (
     <div>
       <PageHeader
         title={t.workorders.title}
         subtitle={t.workorders.subtitle}
-        actions={
-          <Button size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => openEdit('new')}>
-            {t.common.new}
-          </Button>
-        }
       />
 
       <div className="glass mb-4 flex flex-wrap items-center gap-3 p-4">
@@ -180,87 +142,16 @@ export default function WorkOrders() {
         rows={filtered}
         loading={orders === null}
         empty={<EmptyState icon={<ClipboardList className="h-6 w-6" />} title={t.workorders.empty} />}
-        onRowClick={openEdit}
+        onRowClick={openDoc}
         getKey={(w) => w.id}
         initialSortKey="number"
       />
 
-      <Modal
-        open={editing !== null}
-        onClose={() => setEditing(null)}
-        title={editing === 'new' ? `${t.common.new} — ${t.workorders.title}` : t.workorders.number}
-        size="md"
-        footer={
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {editing && editing !== 'new' ? (
-              <Button
-                variant="danger"
-                size="sm"
-                icon={<Trash2 className="h-3.5 w-3.5" />}
-                onClick={() => {
-                  setDeleting(editing)
-                  setEditing(null)
-                }}
-              >
-                {t.common.delete}
-              </Button>
-            ) : (
-              <span />
-            )}
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => setEditing(null)}>
-                {t.common.cancel}
-              </Button>
-              <Button loading={saving} onClick={() => void save()}>
-                {t.common.save}
-              </Button>
-            </div>
-          </div>
-        }
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextInput
-            label={t.workorders.number}
-            required
-            value={form.number}
-            onChange={(e) => setForm({ ...form, number: e.target.value })}
-            className="font-mono"
-          />
-          <TextInput
-            label={t.workorders.assignedTo}
-            placeholder={t.workorders.assigneePlaceholder}
-            value={form.assigned_to}
-            onChange={(e) => setForm({ ...form, assigned_to: e.target.value })}
-          />
-          <Select
-            label={t.workorders.request}
-            placeholder={t.common.none}
-            options={(requests ?? []).map((r) => ({
-              value: r.id,
-              label: `${r.circuit_designation ?? r.circuit_ref ?? r.id.slice(0, 8)} · ${pick(requestType(r))}`,
-            }))}
-            value={form.request_id}
-            onChange={(e) => setForm({ ...form, request_id: e.target.value })}
-          />
-          <Select
-            label={t.common.status}
-            required
-            options={(maps?.statusesByScope('work_order') ?? []).map((s) => ({ value: s.id, label: pick(s) }))}
-            value={form.status_id}
-            onChange={(e) => setForm({ ...form, status_id: e.target.value })}
-          />
-        </div>
-      </Modal>
-
-      <ConfirmDialog
-        open={deleting !== null}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => void confirmDelete()}
-        title={t.common.deleteTitle}
-        message={deleting ? t.common.deleteConfirm(deleting.number) : ''}
-        confirmLabel={t.common.delete}
-        cancelLabel={t.common.cancel}
-        loading={confirmLoading}
+      <WorkOrderDoc
+        workOrder={docWo}
+        request={docRequest ?? null}
+        approvedBy={approvedByOf(docRequest)}
+        onClose={() => setDocWo(null)}
       />
     </div>
   )

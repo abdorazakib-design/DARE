@@ -18,7 +18,6 @@ create table landing_stations (
   id      uuid primary key default gen_random_uuid(),
   code    text not null unique,
   name    text not null,
-  country text not null,
   x       double precision not null default 0,
   y       double precision not null default 0
 );
@@ -46,9 +45,9 @@ create table request_types (
   id         uuid primary key default gen_random_uuid(),
   code       text not null unique,
   label_en   text not null,
-  label_fr   text not null,
-  desc_en    text not null default '',
-  desc_fr    text not null default '',
+  label_fr   text,
+  desc_en    text,
+  desc_fr    text,
   sort_order int  not null default 0
 );
 
@@ -57,7 +56,7 @@ create table statuses (
   code      text not null,
   scope     text not null,
   label_en  text not null,
-  label_fr  text not null,
+  label_fr  text,
   color     text not null default '#64748b',
   sort_order int not null default 0,
   unique (code, scope)
@@ -116,57 +115,17 @@ create table work_orders (
   created_at  timestamptz not null default now()
 );
 
-create sequence maintenance_ticket_number_seq start with 1;
-
 create table maintenance_events (
   id          uuid primary key default gen_random_uuid(),
-  ticket_number text unique,
   title       text not null,
   station_id  uuid not null references landing_stations (id),
-  ticket_type text check (ticket_type in ('network_event', 'service_request', 'incident', 'repair_and_return')),
-  service_type text check (service_type in ('request_loopback', 'performance_monitoring')),
-  ne_creation_on text,
-  impact text check (impact in ('traffic_affected', 'no_traffic_affected', 'traffic_threat', 'service_affected', 'service_threat', 'non_service_affected')),
-  circuit_id  text,
-  brief_description text,
-  request_person text,
-  update_comments jsonb not null default '[]'::jsonb,
-  update_note text,
   severity    text not null default 'low' check (severity in ('low', 'medium', 'high', 'critical')),
   status_id   uuid not null references statuses (id),
   description text,
-  started_at  timestamptz,
+  started_at  date,
   resolved_at date,
   created_at  timestamptz not null default now()
 );
-
-alter table maintenance_events
-  add column if not exists update_comments jsonb not null default '[]'::jsonb;
-
-update maintenance_events
-set update_comments = jsonb_build_array(
-  jsonb_build_object('text', btrim(update_note), 'created_at', created_at)
-),
-update_note = null
-where update_note is not null
-  and btrim(update_note) <> ''
-  and update_comments = '[]'::jsonb;
-
-create function assign_maintenance_ticket_number()
-returns trigger
-language plpgsql
-as $$
-begin
-  if new.ticket_type is not null and new.ticket_number is null then
-    new.ticket_number := 'TT' || lpad(nextval('maintenance_ticket_number_seq')::text, 5, '0');
-  end if;
-  return new;
-end;
-$$;
-
-create trigger maintenance_ticket_number_before_insert
-before insert on maintenance_events
-for each row execute function assign_maintenance_ticket_number();
 
 create table documents (
   id          uuid primary key default gen_random_uuid(),
@@ -198,16 +157,16 @@ create table project_phases (
   end_date    date
 );
 insert into operators (id, code, name) values
-  
   ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOM', 'SOMTEL'),
   ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HOR', 'HORMUUD'),
   ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJB', 'DJIBOUTI TELECOM');
 
-insert into landing_stations (id, code, name, country, x, y) values
-  ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJB', 'DJIBOUTI', 'Djibouti', 120, 84),
-  ('6844c28f-3404-4bf2-8384-ff49c9312e1d', 'BOS', 'BOSASO', 'Somalia', 512, 78),
-  ('f6116f62-83ef-4798-b082-f51cbe2f972e', 'MOG', 'MOGADISHU', 'Somalia', 566, 214),
-  ('e4f8e690-272b-470f-a43a-ba7720b535c7', 'MOM', 'MOMBASA', 'Kenya', 168, 328);
+
+insert into landing_stations (id, code, name, x, y) values
+  ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJIBOUTI', 'DJIBOUTI', 120, 84),
+  ('6844c28f-3404-4bf2-8384-ff49c9312e1d', 'BOSASO', 'BOSASO' , 512, 78),
+  ('f6116f62-83ef-4798-b082-f51cbe2f972e', 'MOGADISHU', 'MOGADISHU', 566, 214),
+  ('e4f8e690-272b-470f-a43a-ba7720b535c7', 'MOMBASA', 'MOMBASA', 168, 328);
 
 insert into bandwidths (id, label, value_gbps, sort_order) values
   ('3464f64f-4b8b-4903-9292-2222b80cb6ac', '10G', 10, 1),
@@ -228,32 +187,44 @@ insert into restoration_types (id, code, label) values
   ('0e378a8a-9289-464f-8aeb-6661e8410916', 'restored', 'RESTORED');
 
 insert into request_types (id, code, label_en, label_fr, desc_en, desc_fr, sort_order) values
-  ('0dc47552-dd9c-4c26-8870-ada2cfa979ef', 'activation', 'New Circuit Activation', 'Nouvelle activation de circuit', 'Request the activation of a new circuit between two landing stations.', 'Demander l''activation d''un nouveau circuit entre deux stations d''atterrissage.', 1),
-  ('ba5b630b-abdf-45bd-b46d-16bdc72978e2', 'deactivation', 'Circuit De-Activation', 'Désactivation de circuit', 'Request the de-activation of an existing circuit.', 'Demander la désactivation d''un circuit existant.', 2),
-  ('bea77ec4-620d-45e9-a077-c9f1cc3cb0f9', 'backhaul-change', 'Backhaul Provider Change', 'Changement de fournisseur backhaul', 'Change the backhaul provider of an existing circuit.', 'Changer le fournisseur backhaul d''un circuit existant.', 3),
-  ('5fd9bd68-8b92-439d-b089-b2db73262ea0', 'designation-change', 'Circuit Designation Change', 'Changement de désignation de circuit', 'Rename an existing circuit designation.', 'Renommer la désignation d''un circuit existant.', 4),
-  ('98009826-f7f8-45bb-815c-3aba5a3fc5f6', 'interface-change', 'Interface Change', 'Changement d''interface', 'Change the interface type of an existing circuit.', 'Changer le type d''interface d''un circuit existant.', 5),
-  ('1e3c3da4-4c55-42ba-be2c-88eb49043806', 'restoration-change', 'Restoration Change', 'Changement de restauration', 'Change the restoration type of an existing circuit.', 'Changer le type de restauration d''un circuit existant.', 6);
+  ('0dc47552-dd9c-4c26-8870-ada2cfa979ef', 'activation', 'New Circuit Activation', 'Nouvelle activation de circuit',
+   'Request the activation of a new circuit between two landing stations.',
+   'Demander l''activation d''un nouveau circuit entre deux stations d''atterrissage.', 1),
+  ('ba5b630b-abdf-45bd-b46d-16bdc72978e2', 'deactivation', 'Circuit De-Activation', 'Désactivation de circuit',
+   'Request the de-activation of an existing circuit.',
+   'Demander la désactivation d''un circuit existant.', 2),
+  ('bea77ec4-620d-45e9-a077-c9f1cc3cb0f9', 'backhaul-change', 'Backhaul Provider Change', 'Changement de fournisseur backhaul',
+   'Change the backhaul provider of an existing circuit.',
+   'Changer le fournisseur backhaul d''un circuit existant.', 3),
+  ('5fd9bd68-8b92-439d-b089-b2db73262ea0', 'designation-change', 'Circuit Designation Change', 'Changement de désignation de circuit',
+   'Rename an existing circuit designation.',
+   'Renommer la désignation d''un circuit existant.', 4),
+  ('98009826-f7f8-45bb-815c-3aba5a3fc5f6', 'interface-change', 'Interface Change', 'Changement d''interface',
+   'Change the interface type of an existing circuit.',
+   'Changer le type d''interface d''un circuit existant.', 5),
+  ('1e3c3da4-4c55-42ba-be2c-88eb49043806', 'restoration-change', 'Restoration Change', 'Changement de restauration',
+   'Change the restoration type of an existing circuit.',
+   'Changer le type de restauration d''un circuit existant.', 6);
 
-insert into statuses (id, code, scope, label_en, label_fr, color, sort_order) values
-  ('0ae90885-d967-40d5-bada-02ce01374e1d', 'pending', 'request', 'Pending', 'En attente', '#f59e0b', 1),
-  ('778743ea-6877-4400-8808-83ddb0c4da91', 'in-review', 'request', 'In Review', 'En révision', '#38bdf8', 2),
-  ('347e8f89-1430-4eec-a444-0241e87fd134', 'approved', 'request', 'Approved', 'Approuvée', '#34d399', 3),
-  ('abd377e3-1eaa-42d6-b0bc-265f4e930008', 'rejected', 'request', 'Rejected', 'Rejetée', '#f87171', 4),
-  ('0c554657-1396-440b-ac6c-d559ab3b85ae', 'completed', 'request', 'Completed', 'Terminée', '#a78bfa', 5),
-  ('93725c0b-486f-49fb-a00d-63893691ba70', 'active', 'circuit', 'Active', 'Actif', '#34d399', 1),
-  ('9d0e86be-7a8f-4c21-b170-c44290ec3ff5', 'inactive', 'circuit', 'Inactive', 'Inactif', '#64748b', 2),
-  ('14b527d5-dbcf-487d-8b1d-ff1d5f845983', 'suspended', 'circuit', 'Suspended', 'Suspendu', '#f59e0b', 3),
-  ('0494db14-4e84-47d4-8976-fadc390904a8', 'open', 'work_order', 'Open', 'Ouvert', '#38bdf8', 1),
-  ('4fd9b0fd-ea4b-42e3-a92e-ac0ac901b589', 'in-progress', 'work_order', 'In Progress', 'En cours', '#f59e0b', 2),
-  ('e4e64a01-c110-4cc9-b567-586856615b3a', 'closed', 'work_order', 'Closed', 'Clôturé', '#64748b', 3),
-  ('781ca801-e7ce-44e6-9b2d-4103337012cb', 'planned', 'maintenance', 'Planned', 'Planifié', '#38bdf8', 1),
-  ('4627d430-777a-4189-958e-4f59e40b8d53', 'ongoing', 'maintenance', 'Ongoing', 'En cours', '#f59e0b', 2),
-  ('eed1ff46-9b4a-4fa4-bf3e-2777017df482', 'resolved', 'maintenance', 'Resolved', 'Résolu', '#34d399', 3),
-  ('9ce6bbe2-94aa-4490-89d4-b4fa2c137598', 'done', 'project', 'Done', 'Terminé', '#34d399', 1),
-  ('6b17bfac-64a5-430a-bc14-0920e5c0e0ae', 'in-progress', 'project', 'In Progress', 'En cours', '#38bdf8', 2),
-  ('5cdcd49d-6fac-4c80-ac1a-3dcfd259bea2', 'delayed', 'project', 'Delayed', 'Retardé', '#f87171', 3),
-  ('b5496731-8509-4c15-9751-d5018ebcad52', 'planned', 'project', 'Planned', 'Planifié', '#94a3b8', 4);
+insert into statuses (id, code, scope, label_en, color, sort_order) values
+  ('0ae90885-d967-40d5-bada-02ce01374e1d', 'pending', 'request', 'Pending', '#f59e0b', 1),
+  ('778743ea-6877-4400-8808-83ddb0c4da91', 'in-review', 'request', 'In Review', '#38bdf8', 2),
+  ('347e8f89-1430-4eec-a444-0241e87fd134', 'approved', 'request', 'Approved', '#34d399', 3),
+  ('abd377e3-1eaa-42d6-b0bc-265f4e930008', 'rejected', 'request', 'Rejected', '#f87171', 4),
+  ('0c554657-1396-440b-ac6c-d559ab3b85ae', 'completed', 'request', 'Completed', '#a78bfa', 5),
+  ('93725c0b-486f-49fb-a00d-63893691ba70', 'active', 'circuit', 'Active', '#34d399', 1),
+  ('9d0e86be-7a8f-4c21-b170-c44290ec3ff5', 'inactive', 'circuit', 'Inactive', '#64748b', 2),
+  ('14b527d5-dbcf-487d-8b1d-ff1d5f845983', 'suspended', 'circuit', 'Suspended', '#f59e0b', 3),
+  ('0494db14-4e84-47d4-8976-fadc390904a8', 'open', 'work_order', 'Open', '#38bdf8', 1),
+  ('4fd9b0fd-ea4b-42e3-a92e-ac0ac901b589', 'in-progress', 'work_order', 'In Progress', '#f59e0b', 2),
+  ('e4e64a01-c110-4cc9-b567-586856615b3a', 'closed', 'work_order', 'Closed', '#64748b', 3),
+  ('781ca801-e7ce-44e6-9b2d-4103337012cb', 'planned', 'maintenance', 'Planned', '#38bdf8', 1),
+  ('4627d430-777a-4189-958e-4f59e40b8d53', 'ongoing', 'maintenance', 'Ongoing', '#f59e0b', 2),
+  ('eed1ff46-9b4a-4fa4-bf3e-2777017df482', 'resolved', 'maintenance', 'Resolved', '#34d399', 3),
+  ('9ce6bbe2-94aa-4490-89d4-b4fa2c137598', 'done', 'project', 'Done',  '#34d399', 1),
+  ('6b17bfac-64a5-430a-bc14-0920e5c0e0ae', 'in-progress', 'project', 'In Progress', '#38bdf8', 2),
+  ('5cdcd49d-6fac-4c80-ac1a-3dcfd259bea2', 'delayed', 'project', 'Delayed', '#f87171', 3),
+  ('b5496731-8509-4c15-9751-d5018ebcad52', 'planned', 'project', 'Planned', '#94a3b8', 4);
 
 insert into document_categories (id, code, label_en, label_fr) values
   ('8a02e3af-5802-4da0-b7df-775e88ae78dc', 'technical', 'Technical', 'Technique'),
@@ -268,15 +239,23 @@ insert into backhaul_providers (id, name, contact_email, phone) values
   ('f43d0dce-b22d-4e8b-b4bc-d78ce1a8673c', 'Global Carrier Services', 'noc@gcs.example', '+971 4 555 0134');
 insert into circuits (id, designation, circuit_ref, operator_id, station_a_id, station_b_id, bandwidth_id, interface_type_id, quantity, restoration_type_id, status_id, requested_by, activated_at, created_at) values
   ('118f7c98-aa14-48fd-9d9d-b41f70f4a9a9', 'CKTI-001', 'SOM-SRT-001', 'b84701eb-4a3a-4850-86c7-8c7d3746f01f', '64db723f-b9d0-49f1-9d6d-a7ec17698950', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '20b052c4-5b1c-4264-8068-494dd4e4b484', '09d97aaf-f4ce-4f4a-baeb-f5c42559e20d', 1, '13160d05-5f16-41ed-8ed7-b96529da62da', '93725c0b-486f-49fb-a00d-63893691ba70', 'A. Hosman', '2025-11-10', '2025-11-08T09:12:00Z'),
-  ('86365ce9-d894-4139-9ca3-91e964e2ccb6', 'CKTI-002', 'HORM-MG-001', 'b42a425a-a29c-4fc3-87fa-b0348933ed49', 'f6116f62-83ef-4798-b082-f51cbe2f972e', 'e4f8e690-272b-470f-a43a-ba7720b535c7', '3464f64f-4b8b-4903-9292-2222b80cb6ac', '082a5300-6ddb-47b3-8a5e-2a74e2fae69d', 2, '13160d05-5f16-41ed-8ed7-b96529da62da', '93725c0b-486f-49fb-a00d-63893691ba70', 'N. Farah', '2025-09-22', '2025-09-20T14:03:00Z'),
-  ('7431af45-b3b7-4328-a726-735fa61e1d52', 'CKTI-003', 'DJT-BSO-001', '2fd2bde2-580f-4910-a07f-edef7c324e9d', '64db723f-b9d0-49f1-9d6d-a7ec17698950', '6844c28f-3404-4bf2-8384-ff49c9312e1d', '20b052c4-5b1c-4264-8068-494dd4e4b484', 'c0e84515-696a-4814-a4e6-6b485f18c025', 1, '0e378a8a-9289-464f-8aeb-6661e8410916', '93725c0b-486f-49fb-a00d-63893691ba70', 'S. Dubois', '2026-01-15', '2026-01-13T10:40:00Z'),
-  ('32e62f98-abaa-4680-8927-b7c03100922e', 'CKTI-004', 'SOM-BSO-002', 'b84701eb-4a3a-4850-86c7-8c7d3746f01f', '6844c28f-3404-4bf2-8384-ff49c9312e1d', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '3464f64f-4b8b-4903-9292-2222b80cb6ac', '3d886af4-1e6c-4425-b6f6-95c07da0811d', 1, '13160d05-5f16-41ed-8ed7-b96529da62da', '93725c0b-486f-49fb-a00d-63893691ba70', 'M. Kiprop', '2026-02-05', '2026-02-03T08:25:00Z'),
-  ('8f31e354-d5e2-43fa-b6d4-28788bd43364', 'CKTI-005', 'HORM-DJI-002', 'b42a425a-a29c-4fc3-87fa-b0348933ed49', '64db723f-b9d0-49f1-9d6d-a7ec17698950', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '20b052c4-5b1c-4264-8068-494dd4e4b484', '09d97aaf-f4ce-4f4a-baeb-f5c42559e20d', 2, '0e378a8a-9289-464f-8aeb-6661e8410916', '93725c0b-486f-49fb-a00d-63893691ba70', 'A. Hosman', '2026-03-12', '2026-03-10T11:55:00Z'),
-  ('e034d870-79fa-4bf4-8079-8065785967de', 'CKTI-006', 'SOM-MG-001', 'b84701eb-4a3a-4850-86c7-8c7d3746f01f', '6844c28f-3404-4bf2-8384-ff49c9312e1d', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '3464f64f-4b8b-4903-9292-2222b80cb6ac', '082a5300-6ddb-47b3-8a5e-2a74e2fae69d', 1, '13160d05-5f16-41ed-8ed7-b96529da62da', '93725c0b-486f-49fb-a00d-63893691ba70', 'S. Dubois', '2026-04-18', '2026-04-15T16:30:00Z'),
-  ('3d96a350-7fdb-4d30-a4b0-154ca6bc518c', 'CKTI-007', 'DJT-MG-002', '2fd2bde2-580f-4910-a07f-edef7c324e9d', '64db723f-b9d0-49f1-9d6d-a7ec17698950', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '20b052c4-5b1c-4264-8068-494dd4e4b484', 'c0e84515-696a-4814-a4e6-6b485f18c025', 1, '0e378a8a-9289-464f-8aeb-6661e8410916', '93725c0b-486f-49fb-a00d-63893691ba70', 'N. Farah', '2026-05-02', '2026-04-28T09:45:00Z'),
-  ('958aa962-0f0f-486b-94f1-e5cd895d9025', 'CKTI-008', 'SOM-DJI-004', 'b84701eb-4a3a-4850-86c7-8c7d3746f01f', '6844c28f-3404-4bf2-8384-ff49c9312e1d', '64db723f-b9d0-49f1-9d6d-a7ec17698950', '3464f64f-4b8b-4903-9292-2222b80cb6ac', '082a5300-6ddb-47b3-8a5e-2a74e2fae69d', 1, '13160d05-5f16-41ed-8ed7-b96529da62da', '93725c0b-486f-49fb-a00d-63893691ba70', 'M. Kiprop', '2026-05-20', '2026-05-18T14:10:00Z'),
-  ('78010fe7-a526-45e1-919e-e827801ef660', 'CKTI-009', 'HORM-BSO-003', 'b42a425a-a29c-4fc3-87fa-b0348933ed49', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '6844c28f-3404-4bf2-8384-ff49c9312e1d', '20b052c4-5b1c-4264-8068-494dd4e4b484', '09d97aaf-f4ce-4f4a-baeb-f5c42559e20d', 1, '0e378a8a-9289-464f-8aeb-6661e8410916', '93725c0b-486f-49fb-a00d-63893691ba70', 'A. Hosman', '2026-06-10', '2026-06-08T11:20:00Z'),
   ('1420426c-a958-465a-a92c-d3530fc6bc4e', 'CKTI-010', 'DJT-MG-004', '2fd2bde2-580f-4910-a07f-edef7c324e9d', '64db723f-b9d0-49f1-9d6d-a7ec17698950', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '20b052c4-5b1c-4264-8068-494dd4e4b484', 'c0e84515-696a-4814-a4e6-6b485f18c025', 1, '0e378a8a-9289-464f-8aeb-6661e8410916', '93725c0b-486f-49fb-a00d-63893691ba70', 'S. Dubois', '2026-10-06', '2026-10-04T09:00:00Z');
+
+insert into circuit_requests (id, request_type_id, status_id, circuit_designation, circuit_ref, details, requested_by, requested_date, created_at) values
+  ('0fb0df3d-8065-4238-9cde-84cbcc625095', '0dc47552-dd9c-4c26-8870-ada2cfa979ef', '778743ea-6877-4400-8808-83ddb0c4da91', ' enter circuit designation', null, '{"operator_id": "b84701eb-4a3a-4850-86c7-8c7d3746f01f", "station_a_id": "f6116f62-83ef-4798-b082-f51cbe2f972e", "station_b_id": "e4f8e690-272b-470f-a43a-ba7720b535c7", "bandwidth_id": "3464f64f-4b8b-4903-9292-2222b80cb6ac", "interface_type_id": "082a5300-6ddb-47b3-8a5e-2a74e2fae69d", "quantity": 2, "restoration_type_id": "13160d05-5f16-41ed-8ed7-b96529da62da"}', 'A. Hosman', '2026-06-03', '2026-06-03T09:12:00Z'),
+  ('f7f581e8-1d67-47e6-80a5-df18444f3652', '0dc47552-dd9c-4c26-8870-ada2cfa979ef', 'abd377e3-1eaa-42d6-b0bc-265f4e930008', 'CKTI-012', null, '{"operator_id": "b42a425a-a29c-4fc3-87fa-b0348933ed49", "station_a_id": "64db723f-b9d0-49f1-9d6d-a7ec17698950", "station_b_id": "e4f8e690-272b-470f-a43a-bd7d7f8f", "bandwidth_id": "20b052c4-5b1c-4264-8068-494dd4e4b484", "interface_type_id": "09d97aaf-f4ce-4f4a-baeb-f5c42559e20d", "quantity": 1, "restoration_type_id": "0e378a8a-9289-464f-8aeb-6661e8410916"}', 'N. Farah', '2026-07-18', '2026-07-18T11:30:00Z'),
+  ('e609ee6e-75eb-4067-8220-78748b6fa698', 'ba5b630b-abdf-45bd-b46d-16bdc72978e2', '0c554657-1396-440b-ac6c-d559ab3b85ae', 'CKTI-008', null, '{}', 'A. Hosman', '2026-05-20', '2026-05-20T08:45:00Z'),
+  ('4c7167b2-35c0-4ce7-b3b6-763d2330439f', '98009826-f7f8-45bb-815c-3aba5a3fc5f6', '0ae90885-d967-40d5-bada-02ce01374e1d', 'CKTI-002', null, '{"new_interface_id": "09d97aaf-f4ce-4f4a-baeb-f5c42559e20d"}', 'N. Farah', '2026-08-02', '2026-08-02T14:05:00Z'),
+  ('236411ad-7cbd-47db-b020-8c3a8c8f47a8', 'bea77ec4-620d-45e9-a077-c9f1cc3cb0f9', '778743ea-6877-4400-8808-83ddb0c4da91', 'CKTI-004', 'SOM-BSO-002', '{"provider_id": "c930b4ae-9135-4c21-a50e-713e6b91a87f"}', 'M. Kiprop', '2026-09-10', '2026-09-10T10:22:00Z'),
+  ('50d21b44-952b-4981-9b3e-c1af8bce3da2', '1e3c3da4-4c55-42ba-be2c-88eb49043806', '0ae90885-d967-40d5-bada-02ce01374e1d', 'CKTI-005', 'HORM-DJI-002', '{"new_restoration_id": "13160d05-5f16-41ed-8ed7-b96529da62da"}', 'L. Ahmed', '2026-09-28', '2026-09-28T16:40:00Z'),
+  ('dca92b2a-a268-415b-90be-3fbdb8106d0a', '5fd9bd68-8b92-439d-b089-b2db73262ea0', '347e8f89-1430-4eec-a444-0241e87fd134', 'CKTI-010', 'DJT-MG-004', '{"new_designation": "CKTI-010-R"}', 'S. Dubois', '2026-10-06', '2026-10-06T09:00:00Z'),
+  ('29c1bcc2-71ff-483f-8d05-9203ae78c9e2', '0dc47552-dd9c-4c26-8870-ada2cfa979ef', '347e8f89-1430-4eec-a444-0241e87fd134', 'CKTI-013', 'DJT-BSO-002', '{"operator_id": "2fd2bde2-580f-4910-a07f-edef7c324e9d", "station_a_id": "64db723f-b9d0-49f1-9d6d-a7ec17698950", "station_b_id": "6844c28f-3404-4bf2-8384-ff49c9312e1d", "bandwidth_id": "20b052c4-5b1c-4264-8068-494dd4e4b484", "interface_type_id": "c0e84515-696a-4814-a4e6-6b485f18c025", "quantity": 1, "restoration_type_id": "0e378a8a-9289-464f-8aeb-6661e8410916"}', 'M. Kiprop', '2026-10-09', '2026-10-09T13:18:00Z');
+insert into work_orders (id, number, request_id, status_id, assigned_to, created_at) values
+  ('f111b475-ff2b-47c7-9d0d-e257c29fcde8', 'WO-2026-001', 'f7f581e8-1d67-47e6-80a5-df18444f3652', '4fd9b0fd-ea4b-42e3-a92e-ac0ac901b589', 'M. Kiprop', '2026-07-19T08:30:00Z'),
+  ('123ad781-a80d-4bff-ba02-bde7d6cc2c1f', 'WO-2026-002', 'e609ee6e-75eb-4067-8220-78748b6fa698', 'e4e64a01-c110-4cc9-b567-586856615b3a', 'N. Farah', '2026-05-21T09:10:00Z'),
+  ('1a250c58-fdaa-4d59-9004-8303aa6ca6ff', 'WO-2026-003', '4c7167b2-35c0-4ce7-b3b6-763d2330439f', '4fd9b0fd-ea4b-42e3-a92e-ac0ac901b589', 'N. Farah', '2026-09-11T14:44:00Z'),
+  ('8f69fc17-8953-4e7e-87c1-7f61cde636da', 'WO-2026-004', 'dca92b2a-a268-415b-90be-3fbdb8106d0a', '0494db14-4e84-47d4-8976-fadc390904a8', 'S. Dubois', '2026-10-07T10:05:00Z'),
+  ('d11a8f7e-2629-4fef-a315-4f73b169279c', 'WO-2026-005', '0fb0df3d-8065-4238-9cde-84cbcc625095', '0494db14-4e84-47d4-8976-fadc390904a8', null, '2026-06-04T11:20:00Z');
 
 insert into documents (id, title, category_id, url, size, uploaded_by, created_at) values
   ('4b5c4165-88f4-4118-83fa-5295d50d49bf', 'Mux Plan v3.2', '8a02e3af-5802-4da0-b7df-775e88ae78dc', '#', '2.4 MB', 'N. Farah', '2026-09-15T10:00:00Z'),
@@ -371,5 +350,121 @@ begin
     end;
   end loop;
 end $$;
+
+-- ----------------------------------------------------------------------------
+-- Atomic circuit ID generation
+-- ----------------------------------------------------------------------------
+-- The app calls next_circuit_ref(p_prefix) when submitting a "New Circuit
+-- Activation" request. The prefix already encodes the circuit "type", e.g.
+-- SOMT/DJI/MOG/10G/100GE/R (operator / station A / station B / bandwidth /
+-- interface / restoration), and the function appends a per-prefix sequence:
+--   SOMT/DJI/MOG/10G/100GE/R/001, SOMT/DJI/MOG/10G/100GE/R/002, …
+-- Atomicity: the INSERT ... ON CONFLICT DO UPDATE increments the counter in a
+-- single statement, so two concurrent submissions can never get the same ID.
+-- The unique constraint on circuits.circuit_ref remains the final safety net.
+
+create table if not exists circuit_ref_counters (
+  prefix   text primary key,
+  last_seq int  not null default 0
+);
+
+create or replace function next_circuit_ref(p_prefix text)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  n int;
+begin
+  insert into circuit_ref_counters (prefix, last_seq)
+  values (p_prefix, 1)
+  on conflict (prefix) do update
+    set last_seq = circuit_ref_counters.last_seq + 1
+  returning last_seq into n;
+
+  return p_prefix || '/' || lpad(n::text, 3, '0');
+end;
+$$;
+
+grant execute on function next_circuit_ref(text) to anon, authenticated;
+
+-- ------------------------------------------------------------------------------
+-- Capacity entitlements (per operator / route / fiber pair)
+-- Source of truth for how much submarine capacity each party is entitled to,
+-- what was planned at day-1 and what is actually provisioned. Seeded from the
+-- operator's capacity spreadsheet; kept in sync by the app:
+--   - approving a "New Circuit Activation"  → increments provisioned_*
+--   - approving a "Deactivation"            → decrements provisioned_*
+--   - Circuit Request submissions are validated against the remaining capacity
+--     (entitled − provisioned) for the (operator, route) pair.
+-- ------------------------------------------------------------------------------
+create table if not exists capacity_entitlements (
+  id                   uuid primary key default gen_random_uuid(),
+  operator_id          uuid not null references operators(id) on delete cascade,
+  party_code           text,                                    -- DJB / SOM / HOR
+  station_a_id         uuid not null references landing_stations(id) on delete cascade,
+  station_b_id         uuid not null references landing_stations(id) on delete cascade,
+  fp_pair              text not null,                           -- FP1 / FP2
+  dls_number           int,                                     -- DLS section (when known)
+  entitlement_gbps     numeric not null default 0,              -- entitled capacity
+  day1_10g_gbps        numeric not null default 0,              -- day-1 plan, 10G slice
+  day1_100g_gbps       numeric not null default 0,              -- day-1 plan, 100G slice
+  provisioned_10g_gbps numeric not null default 0,              -- actually delivered, 10G
+  provisioned_100g_gbps numeric not null default 0,             -- actually delivered, 100G
+  created_at           timestamptz not null default now(),
+  unique (operator_id, station_a_id, station_b_id, fp_pair)
+);
+
+alter table capacity_entitlements enable row level security;
+create policy "anon all" on capacity_entitlements for all to anon using (true) with check (true);
+
+-- Seed from capacity.xlsx (normalized: operator + station codes resolved against
+-- the operators / landing_stations tables; idempotent via ON CONFLICT DO NOTHING).
+insert into capacity_entitlements
+  (operator_id, party_code, station_a_id, station_b_id, fp_pair, dls_number,
+   entitlement_gbps, day1_10g_gbps, day1_100g_gbps, provisioned_10g_gbps, provisioned_100g_gbps)
+select o.id, v.party, sa.id, sb.id, v.fp, v.dls, v.ent, v.d10, v.d100, v.p10, v.p100
+from (values
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','MOMBASA','FP1',   1,  8000, 300, 2000, 150, 1000),
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','MOMBASA','FP2',   2, 12000, 300, 2000, 150, 1000),
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','BOSASO', 'FP1', null,   60,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','DJIBOUTI','BOSASO', 'FP1', null,  300, 100,    0,  50,    0),
+  ('HORMUUD',         'HOR','DJIBOUTI','BOSASO', 'FP1', null,  240, 200,    0, 100,    0),
+  ('DJIBOUTI TELECOM','DJB','MOMBASA', 'BOSASO', 'FP2', null,   60,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','MOMBASA', 'BOSASO', 'FP2', null,  300, 100,    0,  50,    0),
+  ('HORMUUD',         'HOR','MOMBASA', 'BOSASO', 'FP2', null,  240, 200,    0, 100,    0),
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','MOGADISHU','FP1', null, 120,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','DJIBOUTI','MOGADISHU','FP1', null, 600, 100,    0, 100,    0),
+  ('HORMUUD',         'HOR','DJIBOUTI','MOGADISHU','FP1', null, 480, 200,    0, 200,    0),
+  ('DJIBOUTI TELECOM','DJB','MOMBASA', 'MOGADISHU','FP2', null, 180,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','MOMBASA', 'MOGADISHU','FP2', null, 900, 100,    0,  50,    0),
+  ('HORMUUD',         'HOR','MOMBASA', 'MOGADISHU','FP2', null, 720,   0,  300,   0,  300),
+  ('DJIBOUTI TELECOM','DJB','BOSASO',  'MOGADISHU','FP2', null,   0,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','BOSASO',  'MOGADISHU','FP2', null, 200,   0,    0, 100,    0),
+  ('HORMUUD',         'HOR','BOSASO',  'MOGADISHU','FP2', null, 200, 200,    0,  50,    0)
+) as v(op, party, sta, stb, fp, dls, ent, d10, d100, p10, p100)
+join operators o          on o.code  = v.op
+join landing_stations sa  on sa.code = v.sta
+join landing_stations sb  on sb.code = v.stb
+on conflict (operator_id, station_a_id, station_b_id, fp_pair) do nothing;
+
+-- ------------------------------------------------------------------------------
+-- Maintenance module: trouble tickets + planned maintenance + schedules
+-- maintenance_events gains a kind ('trouble' | 'planned'), an auto ticket
+-- number (TT-YYYY-NNN) and an optional circuit reference. Trouble tickets use
+-- their own status workflow (open → in-progress → resolved).
+-- ------------------------------------------------------------------------------
+alter table maintenance_events add column if not exists kind          text not null default 'planned';
+alter table maintenance_events add column if not exists ticket_number text;
+alter table maintenance_events add column if not exists circuit_id    uuid references circuits(id);
+
+create unique index if not exists maintenance_events_ticket_number_key on maintenance_events (ticket_number);
+
+insert into statuses (code, scope, label_en, label_fr, color, sort_order) values
+  ('open',        'trouble_ticket', 'Open',        'Ouvert',     '#f59e0b', 1),
+  ('in-progress', 'trouble_ticket', 'In Progress', 'En cours',   '#38bdf8', 2),
+  ('resolved',    'trouble_ticket', 'Resolved',    'Résolu',     '#34d399', 3)
+on conflict (code, scope) do nothing;
 
 -- Done ✅

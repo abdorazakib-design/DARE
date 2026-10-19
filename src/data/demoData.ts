@@ -28,7 +28,7 @@ const id = (n: number) => `00000000-0000-4000-8000-00000000${String(n).padStart(
 export const demoOperators: Operator[] = [
   { id: id(0x0011), code: 'SOMTEL', name: 'SOMTEL' },
   { id: id(0x0012), code: 'HORMUUD', name: 'HORMUUD' },
-  { id: id(0x0013), code: 'DJIBOUTI TELECOM', name: 'DJIBOUTI TELECOM' },
+  { id: id(0x0013), code: 'DJB', name: 'DJIBOUTI TELECOM' },
   { id: id(0x0014), code: 'TELESOM', name: 'TELESOM' },
 ]
 
@@ -114,6 +114,9 @@ export const demoStatuses: StatusRow[] = [
   { id: id(0x0088), code: 'planned', scope: 'maintenance', label_en: 'Planned', label_fr: 'Planifié', color: '#38bdf8', sort_order: 1 },
   { id: id(0x0089), code: 'ongoing', scope: 'maintenance', label_en: 'Ongoing', label_fr: 'En cours', color: '#f59e0b', sort_order: 2 },
   { id: id(0x008a), code: 'resolved', scope: 'maintenance', label_en: 'Resolved', label_fr: 'Résolu', color: '#34d399', sort_order: 3 },
+  { id: id(0x008b), code: 'open', scope: 'trouble_ticket', label_en: 'Open', label_fr: 'Ouvert', color: '#f59e0b', sort_order: 1 },
+  { id: id(0x008c), code: 'in-progress', scope: 'trouble_ticket', label_en: 'In Progress', label_fr: 'En cours', color: '#38bdf8', sort_order: 2 },
+  { id: id(0x008d), code: 'resolved', scope: 'trouble_ticket', label_en: 'Resolved', label_fr: 'Résolu', color: '#34d399', sort_order: 3 },
   { id: id(0x0091), code: 'done', scope: 'project', label_en: 'Done', label_fr: 'Terminé', color: '#34d399', sort_order: 1 },
   { id: id(0x0092), code: 'in-progress', scope: 'project', label_en: 'In Progress', label_fr: 'En cours', color: '#38bdf8', sort_order: 2 },
   { id: id(0x0093), code: 'delayed', scope: 'project', label_en: 'Delayed', label_fr: 'Retardé', color: '#f87171', sort_order: 3 },
@@ -154,9 +157,63 @@ export const demoCircuits: Circuit[] = [
   { id: id(0x0110), designation: 'CKTI-010', circuit_ref: 'DJT-MG-004', operator_id: OP[2].id, station_a_id: ST[0].id, station_b_id: ST[2].id, bandwidth_id: BW[0].id, interface_type_id: IT[0].id, quantity: 3, restoration_type_id: RT[0].id, status_id: SX[5].id, requested_by: 'S. Dubois', activated_at: '2026-07-14', created_at: '2026-07-12T15:20:00Z' },
 ]
 
-export const demoRequests: CircuitRequest[] = []
+export const demoRequests: CircuitRequest[] = [
+  {
+    id: id(0x0201), request_type_id: demoRequestTypes[0].id, status_id: SX[1].id,
+    circuit_designation: 'CKTI-011', circuit_ref: 'SOM-MB-005',
+    details: { operator_id: OP[0].id, station_a_id: ST[2].id, station_b_id: ST[3].id, bandwidth_id: BW[0].id, interface_type_id: IT[0].id, quantity: 2, restoration_type_id: RT[0].id },
+    requested_by: 'A. Hosman', requested_date: '2026-06-03', created_at: '2026-06-03T09:12:00Z',
+  },
+  {
+    id: id(0x0202), request_type_id: demoRequestTypes[0].id, status_id: SX[3].id,
+    circuit_designation: 'CKTI-012', circuit_ref: 'HORM-DJI-003',
+    details: { operator_id: OP[1].id, station_a_id: ST[0].id, station_b_id: ST[3].id, bandwidth_id: BW[1].id, interface_type_id: IT[4].id, quantity: 1, restoration_type_id: RT[1].id },
+    requested_by: 'N. Farah', requested_date: '2026-07-18', created_at: '2026-07-18T11:30:00Z',
+  },
+  {
+    id: id(0x0203), request_type_id: demoRequestTypes[1].id, status_id: SX[4].id,
+    circuit_designation: 'CKTI-008', circuit_ref: 'SOM-DJI-004',
+    details: {}, requested_by: 'A. Hosman', requested_date: '2026-05-20', created_at: '2026-05-20T08:45:00Z',
+  },
+  {
+    id: id(0x0204), request_type_id: demoRequestTypes[4].id, status_id: SX[0].id,
+    circuit_designation: 'CKTI-002', circuit_ref: 'HORM-MG-001',
+    details: { new_interface_id: IT[4].id },
+    requested_by: 'N. Farah', requested_date: '2026-08-02', created_at: '2026-08-02T14:05:00Z',
+  },
+  {
+    id: id(0x0205), request_type_id: demoRequestTypes[2].id, status_id: SX[1].id,
+    circuit_designation: 'CKTI-004', circuit_ref: 'SOM-BSO-002',
+    details: { provider_id: demoProviders[1].id },
+    requested_by: 'M. Kiprop', requested_date: '2026-09-10', created_at: '2026-09-10T10:22:00Z',
+  },
+  {
+    id: id(0x0206), request_type_id: demoRequestTypes[5].id, status_id: SX[0].id,
+    circuit_designation: 'CKTI-005', circuit_ref: 'HORM-DJI-002',
+    details: { new_restoration_id: RT[0].id },
+    requested_by: 'L. Ahmed', requested_date: '2026-09-28', created_at: '2026-09-28T16:40:00Z',
+  },
+  {
+    id: id(0x0207), request_type_id: demoRequestTypes[3].id, status_id: SX[2].id,
+    circuit_designation: 'CKTI-010', circuit_ref: 'DJT-MG-004',
+    details: { new_designation: 'CKTI-010-R' },
+    requested_by: 'S. Dubois', requested_date: '2026-10-06', created_at: '2026-10-06T09:00:00Z',
+  },
+  {
+    id: id(0x0208), request_type_id: demoRequestTypes[0].id, status_id: SX[0].id,
+    circuit_designation: 'CKTI-013', circuit_ref: 'DJT-BSO-002',
+    details: { operator_id: OP[2].id, station_a_id: ST[0].id, station_b_id: ST[1].id, bandwidth_id: BW[1].id, interface_type_id: IT[5].id, quantity: 1, restoration_type_id: RT[0].id },
+    requested_by: 'M. Kiprop', requested_date: '2026-10-09', created_at: '2026-10-09T13:18:00Z',
+  },
+]
 
-export const demoWorkOrders: WorkOrder[] = []
+export const demoWorkOrders: WorkOrder[] = [
+  { id: id(0x0301), number: 'WO-2026-001', request_id: demoRequests[1].id, status_id: SX[9].id, assigned_to: 'M. Kiprop', created_at: '2026-07-19T08:30:00Z' },
+  { id: id(0x0302), number: 'WO-2026-002', request_id: demoRequests[2].id, status_id: SX[10].id, assigned_to: 'N. Farah', created_at: '2026-05-21T09:10:00Z' },
+  { id: id(0x0303), number: 'WO-2026-003', request_id: demoRequests[4].id, status_id: SX[9].id, assigned_to: 'N. Farah', created_at: '2026-09-11T14:44:00Z' },
+  { id: id(0x0304), number: 'WO-2026-004', request_id: demoRequests[6].id, status_id: SX[8].id, assigned_to: 'S. Dubois', created_at: '2026-10-07T10:05:00Z' },
+  { id: id(0x0305), number: 'WO-2026-005', request_id: demoRequests[0].id, status_id: SX[8].id, assigned_to: null, created_at: '2026-06-04T11:20:00Z' },
+]
 
 export const demoDocuments: DocumentRow[] = [
   { id: id(0x0401), title: 'Mux Plan v3.2', category_id: demoDocCategories[0].id, url: '#', size: '2.4 MB', uploaded_by: 'N. Farah', created_at: '2026-09-15T10:00:00Z' },
@@ -176,37 +233,37 @@ export const demoUsers: AppUser[] = [
 
 export const demoMaintenance: MaintenanceEvent[] = [
   {
-    id: id(0x0601), ticket_number: null, title: 'Fiber cut on segment DJIBOUTI – BOSASO', station_id: ST[1].id, severity: 'critical',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
-    status_id: SX[13].id, description: 'Anchor damage detected near Bosaso. Repair ship dispatched, splicing completed.',
+    id: id(0x0601), title: 'Fiber cut on segment DJIBOUTI – BOSASO', station_id: ST[1].id, severity: 'critical',
+    status_id: SX[16].id, description: 'Anchor damage detected near Bosaso. Repair ship dispatched, splicing completed.',
+    kind: 'trouble', ticket_number: 'TT-2026-001', circuit_id: null,
     started_at: '2026-08-14', resolved_at: '2026-08-16', created_at: '2026-08-14T06:50:00Z',
   },
   {
-    id: id(0x0602), ticket_number: null, title: 'Optical span loss degradation DJIBOUTI – MOGADISHU', station_id: ST[0].id, severity: 'medium',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
-    status_id: SX[12].id, description: 'OSNR degradation trend observed on 4 spans. Investigation ongoing.',
+    id: id(0x0602), title: 'Optical span loss degradation DJIBOUTI – MOGADISHU', station_id: ST[0].id, severity: 'medium',
+    status_id: SX[15].id, description: 'OSNR degradation trend observed on 4 spans. Investigation ongoing.',
+    kind: 'trouble', ticket_number: 'TT-2026-002', circuit_id: null,
     started_at: '2026-09-30', resolved_at: null, created_at: '2026-09-30T11:25:00Z',
   },
   {
-    id: id(0x0603), ticket_number: null, title: 'Card upgrade at Mombasa NNOB', station_id: ST[3].id, severity: 'low',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
+    id: id(0x0603), title: 'Card upgrade at Mombasa NNOB', station_id: ST[3].id, severity: 'low',
     status_id: SX[11].id, description: 'Planned amplifier card replacement during the next maintenance window.',
+    kind: 'planned', ticket_number: null, circuit_id: null,
     started_at: '2026-11-01', resolved_at: null, created_at: '2026-10-01T09:00:00Z',
   },
   {
-    id: id(0x0604), ticket_number: null, title: 'Power anomaly at Bosaso NNOB', station_id: ST[1].id, severity: 'high',
-    ticket_type: null, service_type: null, ne_creation_on: null, impact: null, circuit_id: null, brief_description: null, request_person: null, update_comments: [], update_note: null,
-    status_id: SX[13].id, description: 'Rectifier failure — switched to redundant power feed.',
+    id: id(0x0604), title: 'Power anomaly at Bosaso NNOB', station_id: ST[1].id, severity: 'high',
+    status_id: SX[16].id, description: 'Rectifier failure — switched to redundant power feed.',
+    kind: 'trouble', ticket_number: 'TT-2026-003', circuit_id: null,
     started_at: '2026-06-12', resolved_at: '2026-06-13', created_at: '2026-06-12T17:40:00Z',
   },
 ]
 
 export const demoPhases: ProjectPhase[] = [
-  { id: id(0x0701), name: 'System Design & Marine Survey', phase_order: 1, status_id: SX[14].id, progress: 100, start_date: '2025-02-01', end_date: '2025-04-30' },
-  { id: id(0x0702), name: 'Marine Installation & Cable Laying', phase_order: 2, status_id: SX[14].id, progress: 100, start_date: '2025-05-10', end_date: '2025-09-15' },
-  { id: id(0x0703), name: 'System Integration & Testing', phase_order: 3, status_id: SX[14].id, progress: 100, start_date: '2025-09-16', end_date: '2026-01-20' },
-  { id: id(0x0704), name: 'Ready for Service (RFS) & Acceptance', phase_order: 4, status_id: SX[15].id, progress: 75, start_date: '2026-01-21', end_date: '2026-11-30' },
-  { id: id(0x0705), name: 'Phase 1 Capacity Sales', phase_order: 5, status_id: SX[17].id, progress: 5, start_date: '2026-10-01', end_date: '2027-03-31' },
+  { id: id(0x0701), name: 'System Design & Marine Survey', phase_order: 1, status_id: SX[17].id, progress: 100, start_date: '2025-02-01', end_date: '2025-04-30' },
+  { id: id(0x0702), name: 'Marine Installation & Cable Laying', phase_order: 2, status_id: SX[17].id, progress: 100, start_date: '2025-05-10', end_date: '2025-09-15' },
+  { id: id(0x0703), name: 'System Integration & Testing', phase_order: 3, status_id: SX[17].id, progress: 100, start_date: '2025-09-16', end_date: '2026-01-20' },
+  { id: id(0x0704), name: 'Ready for Service (RFS) & Acceptance', phase_order: 4, status_id: SX[18].id, progress: 75, start_date: '2026-01-21', end_date: '2026-11-30' },
+  { id: id(0x0705), name: 'Phase 1 Capacity Sales', phase_order: 5, status_id: SX[20].id, progress: 5, start_date: '2026-10-01', end_date: '2027-03-31' },
 ]
 
 export function statusByCode(code: string, scope: string): StatusRow {

@@ -127,28 +127,54 @@ export interface AppUser {
   created_at: string
 }
 
-export interface MaintenanceComment {
-  text: string
+/**
+ * Capacity entitlement for a party (operator) on a route + fiber pair,
+ * seeded from the operator's capacity spreadsheet and kept in sync by the
+ * app (activation → provisioned+, deactivation → provisioned−).
+ */
+export interface CapacityEntitlement {
+  id: string
+  operator_id: string
+  party_code: string | null
+  station_a_id: string
+  station_b_id: string
+  fp_pair: string
+  dls_number: number | null
+  entitlement_gbps: number
+  day1_10g_gbps: number
+  day1_100g_gbps: number
+  provisioned_10g_gbps: number
+  provisioned_100g_gbps: number
   created_at: string
+}
+
+export interface CapacityEntitlementInput {
+  operator_id: string
+  party_code?: string | null
+  station_a_id: string
+  station_b_id: string
+  fp_pair: string
+  dls_number?: number | null
+  entitlement_gbps: number
+  day1_10g_gbps: number
+  day1_100g_gbps: number
+  provisioned_10g_gbps: number
+  provisioned_100g_gbps: number
 }
 
 export interface MaintenanceEvent {
   id: string
-  ticket_number: string | null
   title: string
   station_id: string
-  ticket_type: 'network_event' | 'service_request' | 'incident' | 'repair_and_return' | null
-  service_type: 'request_loopback' | 'performance_monitoring' | null
-  ne_creation_on: string | null
-  impact: 'traffic_affected' | 'no_traffic_affected' | 'traffic_threat' | 'service_affected' | 'service_threat' | 'non_service_affected' | null
-  circuit_id: string | null
-  brief_description: string | null
-  request_person: string | null
-  update_comments: MaintenanceComment[]
-  update_note: string | null
   severity: string
   status_id: string
   description: string | null
+  /** 'trouble' (incident ticket) or 'planned' (scheduled maintenance). */
+  kind: string
+  /** Auto ticket number for trouble tickets, e.g. TT-2026-001. */
+  ticket_number: string | null
+  /** Circuit affected by the event (optional). */
+  circuit_id: string | null
   started_at: string | null
   resolved_at: string | null
   created_at: string
@@ -234,21 +260,14 @@ export interface ProviderInput {
 }
 
 export interface MaintenanceInput {
-  ticket_number?: string | null
   title: string
   station_id: string
-  ticket_type: 'network_event' | 'service_request' | 'incident' | 'repair_and_return' | null
-  service_type: 'request_loopback' | 'performance_monitoring' | null
-  ne_creation_on: string | null
-  impact: 'traffic_affected' | 'no_traffic_affected' | 'traffic_threat' | 'service_affected' | 'service_threat' | 'non_service_affected' | null
-  circuit_id: string | null
-  brief_description: string | null
-  request_person: string | null
-  update_comments: MaintenanceComment[]
-  update_note: string | null
   severity: string
   status_id: string
   description: string | null
+  kind: string
+  ticket_number?: string | null
+  circuit_id?: string | null
   started_at: string | null
   resolved_at: string | null
 }
