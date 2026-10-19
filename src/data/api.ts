@@ -274,6 +274,17 @@ export async function updateRequestStatus(id: string, statusId: string): Promise
   return sbUpdate<CircuitRequest>('circuit_requests', id, { status_id: statusId })
 }
 
+/** Persist extra keys into a request's JSONB details (e.g. approved_at for the recap). */
+export async function updateRequestDetails(id: string, details: Record<string, unknown>): Promise<void> {
+  if (!isSupabaseConfigured) {
+    await wait()
+    const i = demoRequests.findIndex((r) => r.id === id)
+    if (i !== -1) demoRequests[i] = { ...demoRequests[i], details }
+    return
+  }
+  await sbUpdate<CircuitRequest>('circuit_requests', id, { details })
+}
+
 // ---------- Work orders ----------
 
 export async function fetchWorkOrders(): Promise<WorkOrder[]> {

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, History, Inbox, Send, Wrench, XCircle } from 'lucide-react'
+import { CheckCircle2, FileText, History, Inbox, Send, Wrench, XCircle } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, provisionCircuitFromRequest, reserveCircuitRef, updateRequestStatus } from '@/data/api'
+import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, provisionCircuitFromRequest, reserveCircuitRef, updateRequestDetails, updateRequestStatus } from '@/data/api'
 import { buildCircuitRefPrefix, formatCircuitRef, isCompletePrefix, nextSequence } from '@/lib/circuitRef'
 import { resolveSessionUser } from '@/lib/sessionUser'
 import type { AppUser } from '@/lib/types'
@@ -10,6 +10,7 @@ import type { Circuit, CircuitRequest } from '@/lib/types'
 import { Button, Card, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
 import { Modal, useToast } from '@/components/ui/feedback'
+import { ActivationRecap } from '@/components/ActivationRecap'
 import { StatusBadge } from '@/components/badges'
 import { fmtDate, fmtDateTime, todayISO } from '@/lib/utils'
 
@@ -65,6 +66,8 @@ export default function CircuitRequest() {
   const [acting, setActing] = useState(false)
   // The request history is hidden by default (kept reachable for approvals).
   const [showHistory, setShowHistory] = useState(false)
+  /** End-of-process activation summary (print / email to the requester). */
+  const [recap, setRecap] = useState<CircuitRequest | null>(null)
 
   useEffect(() => {
     fetchRequests().then(setRequests).catch((e: unknown) => push(e instanceof Error ? e.message : t.common.error, 'error'))
@@ -216,10 +219,16 @@ export default function CircuitRequest() {
     setActing(true)
     try {
       await updateRequestStatus(r.id, st.id)
+      const updated: CircuitRequest = { ...r, status_id: st.id }
+      // Stamp the approval time once — the recap shows it as "Approval Date".
+      if (statusCode === 'approved' && typeof r.details?.approved_at !== 'string') {
+        updated.details = { ...r.details, approved_at: new Date().toISOString() }
+        await updateRequestDetails(r.id, updated.details)
+      }
       // Approving (or completing) a "New Circuit Activation" request provisions
       // the real circuit so it appears in the Circuit List.
+      const isActivation = maps?.requestTypeById.get(r.request_type_id)?.code === 'activation'
       if (statusCode === 'approved' || statusCode === 'completed') {
-        const isActivation = maps?.requestTypeById.get(r.request_type_id)?.code === 'activation'
         const active = refs?.statuses.find((s) => s.code === 'active' && s.scope === 'circuit')
         if (isActivation && active) {
           const created = await provisionCircuitFromRequest(r, active.id)
@@ -227,7 +236,9 @@ export default function CircuitRequest() {
         }
       }
       push(t.request.statusUpdated)
-      if (selected?.id === r.id) setSelected({ ...r, status_id: st.id })
+      if (selected?.id === r.id) setSelected(updated)
+      // End of the activation process → show the recap (print / email) automatically.
+      if (isActivation && (statusCode === 'approved' || statusCode === 'completed')) setRecap(updated)
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -445,6 +456,12 @@ export default function CircuitRequest() {
         footer={
           selected ? (
             <div className="flex flex-wrap justify-end gap-2">
+              {maps?.requestTypeById.get(selected.request_type_id)?.code === 'activation' &&
+              (selectedStatus === 'approved' || selectedStatus === 'completed') ? (
+                <Button variant="outline" size="sm" icon={<FileText className="h-3.5 w-3.5" />} onClick={() => setRecap(selected)}>
+                  {t.request.viewRecap}
+                </Button>
+              ) : null}
               {canDecide ? (
                 <>
                   <Button variant="danger" size="sm" loading={acting} icon={<XCircle className="h-3.5 w-3.5" />} onClick={() => void setStatus(selected, 'rejected')}>
@@ -508,6 +525,8 @@ export default function CircuitRequest() {
           </div>
         ) : null}
       </Modal>
+
+      <ActivationRecap request={recap} onClose={() => setRecap(null)} />
     </div>
   )
 
