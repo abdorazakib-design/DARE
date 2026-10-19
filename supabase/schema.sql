@@ -158,10 +158,9 @@ create table project_phases (
   end_date    date
 );
 insert into operators (id, code, name) values
-  ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOMTEL', 'SOMTEL'),
-  ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HORMUUD', 'HORMUUD'),
-  ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJIBOUTI TELECOM', 'DJIBOUTI TELECOM'),
-  ('b5636561-4bf0-4608-a829-878a6c209d3f', 'TELESOM', 'TELESOM');
+  ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOM', 'SOMTEL'),
+  ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HOR', 'HORMUUD'),
+  ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJB', 'DJIBOUTI TELECOM');
 
 insert into landing_stations (id, code, name, country, x, y) values
   ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJIBOUTI', 'DJIBOUTI', 'Djibouti', 120, 84),
