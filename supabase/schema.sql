@@ -45,9 +45,6 @@ create table request_types (
   id         uuid primary key default gen_random_uuid(),
   code       text not null unique,
   label_en   text not null,
-  label_fr   text not null,
-  desc_en    text not null default '',
-  desc_fr    text not null default '',
   sort_order int  not null default 0
 );
 
@@ -185,13 +182,13 @@ insert into restoration_types (id, code, label) values
   ('13160d05-5f16-41ed-8ed7-b96529da62da', 'no-restored', 'NO RESTORED'),
   ('0e378a8a-9289-464f-8aeb-6661e8410916', 'restored', 'RESTORED');
 
-insert into request_types (id, code, label_en, label_fr, desc_en, desc_fr, sort_order) values
-  ('0dc47552-dd9c-4c26-8870-ada2cfa979ef', 'activation', 'New Circuit Activation', 'Nouvelle activation de circuit', 'Request the activation of a new circuit between two landing stations.', 'Demander l''activation d''un nouveau circuit entre deux stations d''atterrissage.', 1),
-  ('ba5b630b-abdf-45bd-b46d-16bdc72978e2', 'deactivation', 'Circuit De-Activation', 'Désactivation de circuit', 'Request the de-activation of an existing circuit.', 'Demander la désactivation d''un circuit existant.', 2),
-  ('bea77ec4-620d-45e9-a077-c9f1cc3cb0f9', 'backhaul-change', 'Backhaul Provider Change', 'Changement de fournisseur backhaul', 'Change the backhaul provider of an existing circuit.', 'Changer le fournisseur backhaul d''un circuit existant.', 3),
-  ('5fd9bd68-8b92-439d-b089-b2db73262ea0', 'designation-change', 'Circuit Designation Change', 'Changement de désignation de circuit', 'Rename an existing circuit designation.', 'Renommer la désignation d''un circuit existant.', 4),
-  ('98009826-f7f8-45bb-815c-3aba5a3fc5f6', 'interface-change', 'Interface Change', 'Changement d''interface', 'Change the interface type of an existing circuit.', 'Changer le type d''interface d''un circuit existant.', 5),
-  ('1e3c3da4-4c55-42ba-be2c-88eb49043806', 'restoration-change', 'Restoration Change', 'Changement de restauration', 'Change the restoration type of an existing circuit.', 'Changer le type de restauration d''un circuit existant.', 6);
+insert into request_types (id, code, label_en, sort_order) values
+  ('0dc47552-dd9c-4c26-8870-ada2cfa979ef', ' CAR', 'New Circuit Activation', 'Request the activation of a new , 1),
+  ('ba5b630b-abdf-45bd-b46d-16bdc72978e2', 'CDR', 'Circuit De-Activation', 'Désactivation de circuit' 2),
+  ('bea77ec4-620d-45e9-a077-c9f1cc3cb0f9', 'CBPC, circuit backaull provider Change, 3),
+  ('5fd9bd68-8b92-439d-b089-b2db73262ea0', 'CDRC', 'Circuit Designation  request Change',  4),
+  ('98009826-f7f8-45bb-815c-3aba5a3fc5f6', 'CIRC', 'Interface request Change',5),
+  ('1e3c3da4-4c55-42ba-be2c-88eb49043806', 'CRRC', 'Restoration Change',6);
 
 insert into statuses (id, code, scope, label_en, color, sort_order) values
   ('0ae90885-d967-40d5-bada-02ce01374e1d', 'pending', 'request', 'Pending', '#f59e0b', 1),
