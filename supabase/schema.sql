@@ -18,7 +18,6 @@ create table landing_stations (
   id      uuid primary key default gen_random_uuid(),
   code    text not null unique,
   name    text not null,
-  country text not null,
   x       double precision not null default 0,
   y       double precision not null default 0
 );
