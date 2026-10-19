@@ -8,6 +8,7 @@ import type {
 } from 'react'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useI18n } from '@/i18n'
 
 // ---------- Button ----------
 
@@ -132,12 +133,12 @@ interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'chi
 }
 
 export function Select({ label, options, placeholder, wrapClassName, error, required, className, ...rest }: SelectProps) {
+  const { t } = useI18n()
   return (
     <FieldWrap label={label} error={error} required={required} className={wrapClassName}>
       <select className={cn('field cursor-pointer appearance-none', className)} {...rest}>
-        {placeholder !== undefined && (
-          <option value="">{placeholder}</option>
-        )}
+        {/* Always present: the field starts empty and invites a selection. */}
+        <option value="">{placeholder ?? t.common.choose}</option>
         {options.map((o) => (
           <option key={o.value} value={o.value} className="bg-abyss-800 text-slate-100">
             {o.label}

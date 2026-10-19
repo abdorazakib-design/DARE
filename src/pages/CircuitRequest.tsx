@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Inbox, Send, Wrench, XCircle } from 'lucide-react'
+import { CheckCircle2, History, Inbox, Send, Wrench, XCircle } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, updateRequestStatus } from '@/data/api'
+import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, reserveCircuitRef, updateRequestStatus } from '@/data/api'
+import { buildCircuitRefPrefix, formatCircuitRef, isCompletePrefix, nextSequence } from '@/lib/circuitRef'
+import { resolveSessionUser } from '@/lib/sessionUser'
+import type { AppUser } from '@/lib/types'
 import type { Circuit, CircuitRequest } from '@/lib/types'
 import { Button, Card, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
@@ -12,7 +15,6 @@ import { fmtDate, fmtDateTime, todayISO } from '@/lib/utils'
 
 interface FormState {
   type_id: string
-  requested_by: string
   requested_date: string
   designation: string
   circuit_ref: string
@@ -32,7 +34,6 @@ interface FormState {
 
 const initialForm: FormState = {
   type_id: '',
-  requested_by: '',
   requested_date: todayISO(),
   designation: '',
   circuit_ref: '',
@@ -57,13 +58,18 @@ export default function CircuitRequest() {
   const [requests, setRequests] = useState<CircuitRequest[] | null>(null)
   const [circuits, setCircuits] = useState<Circuit[] | null>(null)
   const [form, setForm] = useState<FormState>(initialForm)
+  /** The session user — auto-detected, read-only (never typed). */
+  const [sessionUser, setSessionUser] = useState<AppUser | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [selected, setSelected] = useState<CircuitRequest | null>(null)
   const [acting, setActing] = useState(false)
+  // The request history is hidden by default (kept reachable for approvals).
+  const [showHistory, setShowHistory] = useState(false)
 
   useEffect(() => {
     fetchRequests().then(setRequests).catch((e: unknown) => push(e instanceof Error ? e.message : t.common.error, 'error'))
     fetchCircuits().then(setCircuits).catch(() => undefined)
+    resolveSessionUser().then(setSessionUser).catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
 
@@ -72,6 +78,50 @@ export default function CircuitRequest() {
   const isActivation = code === 'activation'
   const pickedCircuit = circuits?.find((c) => c.id === form.circuit_id) ?? null
   const statusBy = (c: string) => refs?.statuses.find((s) => s.code === c && s.scope === 'request')
+
+  // Auto-generated circuit ID (activation requests): stable, self-describing
+  // prefix derived from the selected operator / route / capacity / interface /
+  // restoration — e.g. SOMT-DJI-MOG-10G-100GE-R-001
+  const refPrefix = useMemo(() => {
+    if (!isActivation || !maps) return ''
+    const operator = maps.operatorById.get(form.operator_id)
+    const stationA = maps.stationById.get(form.station_a_id)
+    const stationB = maps.stationById.get(form.station_b_id)
+    const bandwidth = maps.bandwidthById.get(form.bandwidth_id)
+    const iface = maps.interfaceById.get(form.interface_type_id)
+    const restoration = maps.restorationById.get(form.restoration_type_id)
+    if (!operator || !stationA || !stationB || !bandwidth || !iface || !restoration) return ''
+    return buildCircuitRefPrefix({
+      operatorCode: operator.code,
+      stationACode: stationA.code,
+      stationBCode: stationB.code,
+      bandwidthLabel: bandwidth.label,
+      interfaceLabel: iface.label,
+      restorationCode: restoration.code,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isActivation,
+    maps,
+    form.operator_id,
+    form.station_a_id,
+    form.station_b_id,
+    form.bandwidth_id,
+    form.interface_type_id,
+    form.restoration_type_id,
+  ])
+
+  /** Live preview of the ID that will be reserved on submit. */
+  const refPreview = useMemo(() => {
+    if (!refPrefix) return ''
+    return formatCircuitRef(
+      refPrefix,
+      nextSequence(refPrefix, [
+        ...(circuits ?? []).map((c) => c.circuit_ref),
+        ...(requests ?? []).map((r) => r.circuit_ref),
+      ]),
+    )
+  }, [refPrefix, circuits, requests])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -83,8 +133,12 @@ export default function CircuitRequest() {
   const submit = async () => {
     if (!refs || !type) return
     const pending = statusBy('pending')
-    if (!pending || !form.requested_by.trim() || !form.requested_date) {
+    if (!pending || !form.requested_date) {
       push(t.request.invalid, 'error')
+      return
+    }
+    if (!sessionUser) {
+      push(t.request.noSessionUser, 'error')
       return
     }
     let designation = form.designation.trim()
@@ -93,7 +147,7 @@ export default function CircuitRequest() {
     if (isActivation) {
       if (
         !designation ||
-        !ref ||
+        !isCompletePrefix(refPrefix) ||
         !form.operator_id ||
         !form.station_a_id ||
         !form.station_b_id ||
@@ -105,6 +159,9 @@ export default function CircuitRequest() {
         push(t.request.invalid, 'error')
         return
       }
+      // The circuit ID is never typed by the user: it is reserved atomically
+      // on submit (see reserveCircuitRef) so concurrent requests can't clash.
+      ref = ''
       details = {
         operator_id: form.operator_id,
         station_a_id: form.station_a_id,
@@ -133,17 +190,18 @@ export default function CircuitRequest() {
     }
     setSubmitting(true)
     try {
+      if (isActivation) ref = await reserveCircuitRef(refPrefix)
       await createRequest({
         request_type_id: type.id,
         status_id: pending.id,
         circuit_designation: designation,
         circuit_ref: ref,
         details,
-        requested_by: form.requested_by.trim(),
+        requested_by: sessionUser.full_name,
         requested_date: form.requested_date,
       })
       push(t.request.submitted(pick(type)))
-      setForm({ ...initialForm, requested_date: todayISO(), requested_by: form.requested_by })
+      setForm({ ...initialForm, requested_date: todayISO() })
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -247,10 +305,23 @@ export default function CircuitRequest() {
 
   return (
     <div>
-      <PageHeader title={t.request.title} subtitle={t.request.subtitle} />
+      <PageHeader
+        title={t.request.title}
+        subtitle={t.request.subtitle}
+        actions={
+          <Button
+            variant={showHistory ? 'primary' : 'outline'}
+            size="sm"
+            icon={<History className="h-4 w-4" />}
+            onClick={() => setShowHistory((v) => !v)}
+          >
+            {t.request.history}
+          </Button>
+        }
+      />
 
       <div className="grid gap-4 xl:grid-cols-5">
-        <Card title={t.request.newRequest} className="xl:col-span-2">
+        <Card title={t.request.newRequest} className={showHistory ? 'xl:col-span-2' : 'xl:col-span-5'}>
           <div className="space-y-4">
             <Select
               label={t.request.requestType}
@@ -269,13 +340,23 @@ export default function CircuitRequest() {
             {isActivation ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <TextInput label={t.request.designation} required value={form.designation} onChange={(e) => set('designation', e.target.value)} />
-                <TextInput label={t.request.circuitRef} required className="font-mono" value={form.circuit_ref} onChange={(e) => set('circuit_ref', e.target.value)} />
-                <Select label={t.request.operator} required options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))} value={form.operator_id} onChange={(e) => set('operator_id', e.target.value)} />
-                <Select label={t.request.stationA} required options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_a_id} onChange={(e) => set('station_a_id', e.target.value)} />
-                <Select label={t.request.stationB} required options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_b_id} onChange={(e) => set('station_b_id', e.target.value)} />
-                <Select label={t.request.bandwidth} required options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))} value={form.bandwidth_id} onChange={(e) => set('bandwidth_id', e.target.value)} />
-                <Select label={t.request.interface} required options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.interface_type_id} onChange={(e) => set('interface_type_id', e.target.value)} />
-                <Select label={t.request.restoration} required options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.restoration_type_id} onChange={(e) => set('restoration_type_id', e.target.value)} />
+                <div className="sm:col-span-2">
+                  <p className="mb-1.5 block text-[13px] font-medium text-slate-300">
+                    {t.request.circuitRef} <span className="font-normal text-neon-400">({t.request.autoRef})</span>
+                  </p>
+                  <div className="field flex select-none items-center justify-between gap-3" aria-readonly="true" title={t.request.autoRefHint}>
+                    <span className={`font-mono ${refPreview ? 'text-neon-300' : 'text-slate-500'}`}>
+                      {refPreview || t.request.autoRefPending}
+                    </span>
+                    <span className="text-[11px] text-slate-500">{t.request.autoRefHint}</span>
+                  </div>
+                </div>
+                <Select label={t.request.operator} required placeholder={t.request.selectOperator} options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))} value={form.operator_id} onChange={(e) => set('operator_id', e.target.value)} />
+                <Select label={t.request.stationA} required placeholder={t.request.selectStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_a_id} onChange={(e) => set('station_a_id', e.target.value)} />
+                <Select label={t.request.stationB} required placeholder={t.request.selectStation} options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: s.name }))} value={form.station_b_id} onChange={(e) => set('station_b_id', e.target.value)} />
+                <Select label={t.request.bandwidth} required placeholder={t.request.selectBandwidth} options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))} value={form.bandwidth_id} onChange={(e) => set('bandwidth_id', e.target.value)} />
+                <Select label={t.request.interface} required placeholder={t.request.selectInterface} options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.interface_type_id} onChange={(e) => set('interface_type_id', e.target.value)} />
+                <Select label={t.request.restoration} required placeholder={t.request.selectRestoration} options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.restoration_type_id} onChange={(e) => set('restoration_type_id', e.target.value)} />
                 <TextInput label={t.common.quantity} required type="number" min={1} value={form.quantity} onChange={(e) => set('quantity', Math.max(1, Number(e.target.value) || 1))} />
               </div>
             ) : type ? (
@@ -284,22 +365,22 @@ export default function CircuitRequest() {
                   label={t.circuits.designation}
                   required
                   className="sm:col-span-2"
-                  placeholder={t.request.selectType}
+                  placeholder={t.request.selectCircuit}
                   options={(circuits ?? []).map((c) => ({ value: c.id, label: `${c.designation} · ${c.circuit_ref}` }))}
                   value={form.circuit_id}
                   onChange={(e) => onPickCircuit(e.target.value)}
                 />
                 {code === 'backhaul-change' ? (
-                  <Select label={t.request.newProvider} required options={(refs?.providers ?? []).map((p) => ({ value: p.id, label: p.name }))} value={form.new_provider_id} onChange={(e) => set('new_provider_id', e.target.value)} />
+                  <Select label={t.request.newProvider} required placeholder={t.request.selectProvider} options={(refs?.providers ?? []).map((p) => ({ value: p.id, label: p.name }))} value={form.new_provider_id} onChange={(e) => set('new_provider_id', e.target.value)} />
                 ) : null}
                 {code === 'designation-change' ? (
                   <TextInput label={t.request.newDesignation} required value={form.new_designation} onChange={(e) => set('new_designation', e.target.value)} />
                 ) : null}
                 {code === 'interface-change' ? (
-                  <Select label={t.request.newInterface} required options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.new_interface_id} onChange={(e) => set('new_interface_id', e.target.value)} />
+                  <Select label={t.request.newInterface} required placeholder={t.request.selectInterface} options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))} value={form.new_interface_id} onChange={(e) => set('new_interface_id', e.target.value)} />
                 ) : null}
                 {code === 'restoration-change' ? (
-                  <Select label={t.request.newRestoration} required options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.new_restoration_id} onChange={(e) => set('new_restoration_id', e.target.value)} />
+                  <Select label={t.request.newRestoration} required placeholder={t.request.selectRestoration} options={(refs?.restorationTypes ?? []).map((r) => ({ value: r.id, label: r.label }))} value={form.new_restoration_id} onChange={(e) => set('new_restoration_id', e.target.value)} />
                 ) : null}
                 {pickedCircuit ? (
                   <p className="text-xs text-slate-500 sm:col-span-2">
@@ -312,7 +393,16 @@ export default function CircuitRequest() {
             )}
 
             <div className="grid gap-4 border-t border-white/8 pt-4 sm:grid-cols-2">
-              <TextInput label={t.request.requestedBy} required value={form.requested_by} onChange={(e) => set('requested_by', e.target.value)} />
+              {/* The session user is auto-detected and read-only — no typing allowed. */}
+              <TextInput
+                label={t.request.requestedBy}
+                required
+                disabled
+                readOnly
+                title={t.request.noSessionUser}
+                value={sessionUser?.full_name ?? t.common.loading}
+                onChange={() => undefined}
+              />
               <TextInput label={t.request.requestedDate} required type="date" value={form.requested_date} onChange={(e) => set('requested_date', e.target.value)} />
             </div>
 
@@ -322,17 +412,19 @@ export default function CircuitRequest() {
           </div>
         </Card>
 
-        <Card title={t.request.history} className="xl:col-span-3">
-          <DataTable
-            columns={columns}
-            rows={requests ?? []}
-            loading={requests === null}
-            empty={<EmptyState icon={<Inbox className="h-6 w-6" />} title={t.request.emptyHistory} hint={t.request.emptyHint} />}
-            onRowClick={setSelected}
-            getKey={(r) => r.id}
-            pageSize={6}
-          />
-        </Card>
+        {showHistory ? (
+          <Card title={t.request.history} className="xl:col-span-3">
+            <DataTable
+              columns={columns}
+              rows={requests ?? []}
+              loading={requests === null}
+              empty={<EmptyState icon={<Inbox className="h-6 w-6" />} title={t.request.emptyHistory} hint={t.request.emptyHint} />}
+              onRowClick={setSelected}
+              getKey={(r) => r.id}
+              pageSize={6}
+            />
+          </Card>
+        ) : null}
       </div>
 
       <Modal

@@ -1,4 +1,5 @@
 import { getSupabase, isSupabaseConfigured } from '@/lib/supabase'
+import { formatCircuitRef, nextSequence } from '@/lib/circuitRef'
 import {
   demoCircuits,
   demoDocCategories,
@@ -161,6 +162,48 @@ export async function createRequest(input: RequestInput): Promise<CircuitRequest
     return row
   }
   return sbInsert<CircuitRequest>('circuit_requests', { ...input })
+}
+
+// ---------- Atomic circuit ID reservation ----------
+
+/** Demo-mode sequence bookkeeping (kept across calls, not persisted). */
+const demoRefCounters = new Map<string, number>()
+
+/**
+ * Reserves the next circuit ID (circuit_ref) for a given prefix — atomically.
+ *
+ * Live mode: calls the Postgres function `next_circuit_ref(p_prefix)` defined
+ * in supabase/schema.sql. It increments a per-prefix counter with
+ * `insert … on conflict do update … returning`, so two concurrent requests can
+ * never receive the same ID (the unique constraint on circuits.circuit_ref
+ * stays the final safety net).
+ *
+ * If the function is not installed yet, we fall back to deriving the next
+ * sequence from the refs already stored (best effort, race-prone).
+ */
+export async function reserveCircuitRef(prefix: string): Promise<string> {
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await getSupabase().rpc('next_circuit_ref', { p_prefix: prefix })
+      if (!error && typeof data === 'string' && data.startsWith(prefix)) return data
+    } catch {
+      // Function not installed yet — fall through to the best-effort path.
+    }
+    const [circuits, requests] = await Promise.all([fetchCircuits(), fetchRequests()])
+    return formatCircuitRef(
+      prefix,
+      nextSequence(prefix, [...circuits.map((c) => c.circuit_ref), ...requests.map((r) => r.circuit_ref)]),
+    )
+  }
+
+  // Demo mode: in-memory counters.
+  await wait()
+  const known = demoRefCounters.get(prefix)
+  const seq =
+    known ??
+    nextSequence(prefix, [...demoCircuits.map((c) => c.circuit_ref), ...demoRequests.map((r) => r.circuit_ref)])
+  demoRefCounters.set(prefix, seq + 1)
+  return formatCircuitRef(prefix, seq)
 }
 
 export async function updateRequestStatus(id: string, statusId: string): Promise<CircuitRequest> {

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ClipboardList, Plus, Trash2 } from 'lucide-react'
+import { ClipboardList, Trash2 } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createWorkOrder, deleteWorkOrder, fetchRequests, fetchWorkOrders, updateWorkOrder } from '@/data/api'
+import { deleteWorkOrder, fetchRequests, fetchWorkOrders, updateWorkOrder } from '@/data/api'
 import type { CircuitRequest, WorkOrder, WorkOrderInput } from '@/lib/types'
 import { Button, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
@@ -24,7 +24,7 @@ export default function WorkOrders() {
   const [orders, setOrders] = useState<WorkOrder[] | null>(null)
   const [requests, setRequests] = useState<CircuitRequest[] | null>(null)
   const [query, setQuery] = useState('')
-  const [editing, setEditing] = useState<WorkOrder | 'new' | null>(null)
+  const [editing, setEditing] = useState<WorkOrder | null>(null)
   const [form, setForm] = useState<FormState>({ number: '', request_id: '', status_id: '', assigned_to: '' })
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<WorkOrder | null>(null)
@@ -91,19 +91,14 @@ export default function WorkOrders() {
     [t, lang, maps, requests, refs, pick],
   )
 
-  const openEdit = (target: WorkOrder | 'new') => {
-    if (target === 'new') {
-      const next = `WO-${new Date().getFullYear()}-${String((orders?.length ?? 0) + 1).padStart(3, '0')}`
-      const open = maps?.statusesByScope('work_order').find((s) => s.code === 'open')
-      setForm({ number: next, request_id: '', status_id: open?.id ?? maps?.statusesByScope('work_order')[0]?.id ?? '', assigned_to: '' })
-    } else {
-      setForm({ number: target.number, request_id: target.request_id ?? '', status_id: target.status_id, assigned_to: target.assigned_to ?? '' })
-    }
+  // Work orders are created from approved requests only — this page edits existing ones.
+  const openEdit = (target: WorkOrder) => {
+    setForm({ number: target.number, request_id: target.request_id ?? '', status_id: target.status_id, assigned_to: target.assigned_to ?? '' })
     setEditing(target)
   }
 
   const save = async () => {
-    if (!refs) return
+    if (!editing || !refs) return
     const statusId = form.status_id || maps?.statusesByScope('work_order')[0]?.id
     if (!form.number.trim() || !statusId) return
     setSaving(true)
@@ -114,13 +109,8 @@ export default function WorkOrders() {
         status_id: statusId,
         assigned_to: form.assigned_to.trim() || null,
       }
-      if (editing === 'new') {
-        const created = await createWorkOrder(payload)
-        push(t.request.workOrderCreated(created.number))
-      } else if (editing) {
-        await updateWorkOrder(editing.id, payload)
-        push(t.workorders.statusUpdated)
-      }
+      await updateWorkOrder(editing.id, payload)
+      push(t.workorders.statusUpdated)
       setEditing(null)
       bump()
     } catch (e) {
@@ -150,11 +140,6 @@ export default function WorkOrders() {
       <PageHeader
         title={t.workorders.title}
         subtitle={t.workorders.subtitle}
-        actions={
-          <Button size="sm" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => openEdit('new')}>
-            {t.common.new}
-          </Button>
-        }
       />
 
       <div className="glass mb-4 flex flex-wrap items-center gap-3 p-4">
@@ -180,11 +165,11 @@ export default function WorkOrders() {
       <Modal
         open={editing !== null}
         onClose={() => setEditing(null)}
-        title={editing === 'new' ? `${t.common.new} — ${t.workorders.title}` : t.workorders.number}
+        title={editing ? t.workorders.number : ''}
         size="md"
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {editing && editing !== 'new' ? (
+            {editing ? (
               <Button
                 variant="danger"
                 size="sm"

@@ -9,10 +9,17 @@ import { Button, EmptyState, Select, TextInput } from '@/components/ui/primitive
 import { DataTable, type Column } from '@/components/ui/table'
 import { Modal, useToast } from '@/components/ui/feedback'
 import { StatusBadge } from '@/components/badges'
-import { fmtDate, fmtNumber, todayISO } from '@/lib/utils'
+import { fmtDate, fmtNumber, todayISO, cn } from '@/lib/utils'
 
-/** Shared circuit explorer — powers /circuits (all circuits) and /active (active only). */
-export function CircuitExplorer({ onlyActive = false }: { onlyActive?: boolean }) {
+/** Shared circuit explorer — powers /circuits (search page) and /active (active only). */
+export function CircuitExplorer({
+  onlyActive = false,
+  /** true = show the operator/station/bandwidth/… dropdown filters; false = pure search page. */
+  enableFilters = true,
+}: {
+  onlyActive?: boolean
+  enableFilters?: boolean
+}) {
   const { t, lang, pick } = useI18n()
   const { refs, maps, version, bump } = useData()
   const { push } = useToast()
@@ -42,7 +49,8 @@ export function CircuitExplorer({ onlyActive = false }: { onlyActive?: boolean }
       if (fStatus && c.status_id !== fStatus) return false
       if (fStation && c.station_a_id !== fStation && c.station_b_id !== fStation) return false
       if (q) {
-        const hay = `${c.designation} ${c.circuit_ref} ${maps.operatorById.get(c.operator_id)?.name ?? ''} ${maps.stationById.get(c.station_a_id)?.name ?? ''} ${maps.stationById.get(c.station_b_id)?.name ?? ''}`.toLowerCase()
+        // Search matches ONLY the circuit ID (circuit_ref) and the designation.
+        const hay = `${c.designation} ${c.circuit_ref}`.toLowerCase()
         if (!hay.includes(q)) return false
       }
       return true
@@ -108,38 +116,42 @@ export function CircuitExplorer({ onlyActive = false }: { onlyActive?: boolean }
 
   return (
     <>
-      <div className="glass mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6">
+      <div className={cn('glass mb-4 grid gap-3 p-4', enableFilters ? 'sm:grid-cols-2 lg:grid-cols-6' : 'sm:grid-cols-1')}>
         <TextInput placeholder={t.circuits.searchPlaceholder} value={query} onChange={(e) => setQuery(e.target.value)} />
-        <Select
-          placeholder={t.circuits.filterOperator}
-          options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))}
-          value={fOperator}
-          onChange={(e) => setFOperator(e.target.value)}
-        />
-        <Select
-          placeholder={t.circuits.filterStation}
-          options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: `${s.name} · ${s.country}` }))}
-          value={fStation}
-          onChange={(e) => setFStation(e.target.value)}
-        />
-        <Select
-          placeholder={t.circuits.filterBandwidth}
-          options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))}
-          value={fBandwidth}
-          onChange={(e) => setFBandwidth(e.target.value)}
-        />
-        <Select
-          placeholder={t.circuits.filterInterface}
-          options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))}
-          value={fInterface}
-          onChange={(e) => setFInterface(e.target.value)}
-        />
-        <Select
-          placeholder={t.circuits.filterStatus}
-          options={(maps?.statusesByScope('circuit') ?? []).map((s) => ({ value: s.id, label: pick(s) }))}
-          value={fStatus}
-          onChange={(e) => setFStatus(e.target.value)}
-        />
+        {enableFilters ? (
+          <>
+            <Select
+              placeholder={t.circuits.filterOperator}
+              options={(refs?.operators ?? []).map((o) => ({ value: o.id, label: o.name }))}
+              value={fOperator}
+              onChange={(e) => setFOperator(e.target.value)}
+            />
+            <Select
+              placeholder={t.circuits.filterStation}
+              options={(refs?.stations ?? []).map((s) => ({ value: s.id, label: `${s.name} · ${s.country}` }))}
+              value={fStation}
+              onChange={(e) => setFStation(e.target.value)}
+            />
+            <Select
+              placeholder={t.circuits.filterBandwidth}
+              options={(refs?.bandwidths ?? []).map((b) => ({ value: b.id, label: b.label }))}
+              value={fBandwidth}
+              onChange={(e) => setFBandwidth(e.target.value)}
+            />
+            <Select
+              placeholder={t.circuits.filterInterface}
+              options={(refs?.interfaceTypes ?? []).map((i) => ({ value: i.id, label: i.label }))}
+              value={fInterface}
+              onChange={(e) => setFInterface(e.target.value)}
+            />
+            <Select
+              placeholder={t.circuits.filterStatus}
+              options={(maps?.statusesByScope('circuit') ?? []).map((s) => ({ value: s.id, label: pick(s) }))}
+              value={fStatus}
+              onChange={(e) => setFStatus(e.target.value)}
+            />
+          </>
+        ) : null}
       </div>
 
       <DataTable
