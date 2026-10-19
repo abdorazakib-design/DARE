@@ -30,6 +30,10 @@ interface ModalProps {
   footer?: ReactNode
 }
 
+// Tracks nested modals (e.g. the WO document on top of the request detail
+// modal) so the body scroll lock is only released when the last one closes.
+let openModalCount = 0
+
 export function Modal({ open, onClose, title, children, size = 'md', footer }: ModalProps) {
   useEffect(() => {
     if (!open) return
@@ -37,10 +41,12 @@ export function Modal({ open, onClose, title, children, size = 'md', footer }: M
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
+    openModalCount += 1
     document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = ''
+      openModalCount = Math.max(0, openModalCount - 1)
+      if (openModalCount === 0) document.body.style.overflow = ''
     }
   }, [open, onClose])
 
@@ -67,8 +73,9 @@ export function Modal({ open, onClose, title, children, size = 'md', footer }: M
             <X className="h-4 w-4" />
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
-        {footer ? <footer className="border-t border-white/8 px-5 py-4">{footer}</footer> : null}
+        {/* min-h-0 lets the flex child shrink so the scrollbar actually appears. */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">{children}</div>
+        {footer ? <footer className="shrink-0 border-t border-white/8 px-5 py-4">{footer}</footer> : null}
       </div>
     </div>
   )

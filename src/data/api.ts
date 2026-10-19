@@ -22,6 +22,8 @@ import type {
   AppUser,
   AppUserInput,
   BackhaulProvider,
+  CapacityEntitlement,
+  CapacityEntitlementInput,
   Circuit,
   CircuitInput,
   CircuitRequest,
@@ -491,4 +493,128 @@ export async function updatePhase(id: string, input: Partial<ProjectPhase>): Pro
     return demoPhases[i]
   }
   return sbUpdate<ProjectPhase>('project_phases', id, { ...input })
+}
+
+// ---------- Capacity entitlements ----------
+// Source of truth: operator capacity spreadsheet (party × route × fiber pair).
+// The app keeps provisioned_* in sync: activation approval → +bandwidth,
+// deactivation approval → −bandwidth. Submissions are validated against the
+// remaining capacity (entitled − provisioned).
+
+export async function fetchCapacity(): Promise<CapacityEntitlement[]> {
+  if (!isSupabaseConfigured) return wait().then(() => [])
+  return sbList<CapacityEntitlement>('capacity_entitlements', 'created_at', false)
+}
+
+/** Import upsert: matches on the (operator, A, B, FP) unique key. */
+export async function upsertCapacityEntitlement(input: CapacityEntitlementInput): Promise<CapacityEntitlement> {
+  if (!isSupabaseConfigured) {
+    await wait()
+    throw new Error('Capacity import requires Supabase')
+  }
+  const { data: existing, error: findError } = await getSupabase()
+    .from('capacity_entitlements')
+    .select('*')
+    .eq('operator_id', input.operator_id)
+    .eq('station_a_id', input.station_a_id)
+    .eq('station_b_id', input.station_b_id)
+    .eq('fp_pair', input.fp_pair)
+    .maybeSingle()
+  if (findError) throw new Error(findError.message)
+  if (existing) return sbUpdate<CapacityEntitlement>('capacity_entitlements', existing.id, { ...input })
+  return sbInsert<CapacityEntitlement>('capacity_entitlements', { ...input })
+}
+
+/** Edit the rights (entitlement / day-1 plan / FP / DLS) of one capacity row. */
+export async function updateCapacityEntitlement(
+  id: string,
+  input: Partial<CapacityEntitlementInput>,
+): Promise<CapacityEntitlement> {
+  if (!isSupabaseConfigured) {
+    await wait()
+    throw new Error('Capacity editing requires Supabase')
+  }
+  return sbUpdate<CapacityEntitlement>('capacity_entitlements', id, { ...input })
+}
+
+/**
+ * Create (or return the existing) work order for a request, numbering it with
+ * the operator standard: WO + 7 digits (e.g. WO0000128). Used by the manual
+ * "Create work order" button and by the automatic activation flow.
+ */
+export async function createWorkOrderForRequest(
+  request: CircuitRequest,
+  openStatusId: string,
+): Promise<WorkOrder> {
+  const existing = await fetchWorkOrders()
+  const already = existing.find((w) => w.request_id === request.id)
+  if (already) return already
+  const maxSeq = existing.reduce((m, w) => {
+    const match = /(\d+)$/.exec(w.number)
+    return match ? Math.max(m, Number(match[1])) : m
+  }, 0)
+  const number = `WO${String(maxSeq + 1).padStart(7, '0')}`
+  return createWorkOrder({ number, request_id: request.id, status_id: openStatusId, assigned_to: null })
+}
+
+/**
+ * Remaining entitled capacity (Gbps) for a party on a route — the entitlement
+ * summed over both fiber pairs, minus what is already provisioned. Routes are
+ * direction-agnostic (A→B matches B→A). Returns null when no entitlement row
+ * exists for that (operator, route) — validation is then skipped.
+ */
+export function remainingCapacity(
+  rows: CapacityEntitlement[],
+  operatorId: string,
+  stationAId: string,
+  stationBId: string,
+): number | null {
+  const matching = rows.filter(
+    (r) =>
+      r.operator_id === operatorId &&
+      ((r.station_a_id === stationAId && r.station_b_id === stationBId) ||
+        (r.station_a_id === stationBId && r.station_b_id === stationAId)),
+  )
+  if (matching.length === 0) return null
+  return matching.reduce(
+    (sum, r) => sum + Number(r.entitlement_gbps) - Number(r.provisioned_10g_gbps) - Number(r.provisioned_100g_gbps),
+    0,
+  )
+}
+
+/**
+ * Move `deltaGbps` (positive = activation, negative = deactivation) on the
+ * entitlement row with the most remaining capacity for that (operator, route),
+ * so counters always track real circuits. Returns the updated row, or null
+ * when no entitlement exists (nothing to sync).
+ */
+export async function applyCapacityDelta(
+  operatorId: string,
+  stationAId: string,
+  stationBId: string,
+  deltaGbps: number,
+): Promise<CapacityEntitlement | null> {
+  if (!isSupabaseConfigured) return null
+  const rows = await fetchCapacity()
+  const candidates = rows
+    .filter(
+      (r) =>
+        r.operator_id === operatorId &&
+        ((r.station_a_id === stationAId && r.station_b_id === stationBId) ||
+          (r.station_a_id === stationBId && r.station_b_id === stationAId)),
+    )
+    .sort((a, b) => {
+      const rem = (r: CapacityEntitlement) =>
+        Number(r.entitlement_gbps) - Number(r.provisioned_10g_gbps) - Number(r.provisioned_100g_gbps)
+      return deltaGbps >= 0 ? rem(b) - rem(a) : rem(a) - rem(b)
+    })
+  const target = candidates[0]
+  if (!target) return null
+
+  // 10G slice absorbs 10G-or-less deltas; anything bigger goes to the 100G slice.
+  const use100 = deltaGbps > 10 || deltaGbps < -10
+  const payload = use100
+    ? { provisioned_100g_gbps: Number(target.provisioned_100g_gbps) + deltaGbps }
+    : { provisioned_10g_gbps: Number(target.provisioned_10g_gbps) + deltaGbps }
+  return sbUpdate<CapacityEntitlement>('capacity_entitlements', target.id, payload)
 }

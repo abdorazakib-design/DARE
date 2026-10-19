@@ -2,6 +2,7 @@ import {
   BarChart3,
   Cable,
   ClipboardList,
+  Database,
   FolderOpen,
   Gauge,
   Layers,
@@ -23,6 +24,7 @@ export interface NavItem {
 }
 
 export const capacityItems: NavItem[] = [
+  { path: '/capacity', labelKey: 'capacityEntitlements', icon: Database },
   { path: '/mux', labelKey: 'muxPlan', icon: Layers },
   { path: '/circuits', labelKey: 'circuitSearch', icon: Search },
   { path: '/request', labelKey: 'circuitRequest', icon: Send },

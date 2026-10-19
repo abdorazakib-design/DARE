@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { Eye, Pencil, Search, X } from 'lucide-react'
+import { Eye, Search, X } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createRequest, fetchCircuits } from '@/data/api'
+import { fetchCircuits } from '@/data/api'
 import type { Circuit } from '@/lib/types'
 import { Button, EmptyState, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
 import { Modal, useToast } from '@/components/ui/feedback'
 import { StatusBadge } from '@/components/badges'
-import { fmtDate, fmtNumber, todayISO, cn } from '@/lib/utils'
+import { fmtDate, fmtNumber, cn } from '@/lib/utils'
 
 /** How the search matches circuits: by their logical ID or by designation. */
 type SearchMode = 'designation' | 'ref'
@@ -17,14 +16,13 @@ type SearchMode = 'designation' | 'ref'
 /** Circuit explorer for the /circuits search page. */
 export function CircuitExplorer() {
   const { t, lang, pick } = useI18n()
-  const { refs, maps, version, bump } = useData()
+  const { maps, version } = useData()
   const { push } = useToast()
   const [circuits, setCircuits] = useState<Circuit[] | null>(null)
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<SearchMode>('designation')
   const [showAll, setShowAll] = useState(false)
   const [selected, setSelected] = useState<Circuit | null>(null)
-  const [deactivating, setDeactivating] = useState(false)
 
   useEffect(() => {
     fetchCircuits().then(setCircuits).catch((e: unknown) => push(e instanceof Error ? e.message : t.common.error, 'error'))
@@ -70,32 +68,6 @@ export function CircuitExplorer() {
     ],
     [t, maps, lang, pick],
   )
-
-  const requestDeactivation = async () => {
-    if (!selected || !refs) return
-    const type = refs.requestTypes.find((rt) => rt.code === 'deactivation')
-    const pending = refs.statuses.find((s) => s.code === 'pending' && s.scope === 'request')
-    if (!type || !pending) return
-    setDeactivating(true)
-    try {
-      await createRequest({
-        request_type_id: type.id,
-        status_id: pending.id,
-        circuit_designation: selected.designation,
-        circuit_ref: selected.circuit_ref,
-        details: {},
-        requested_by: 'DARE NOC',
-        requested_date: todayISO(),
-      })
-      push(t.request.submitted(pick(type)))
-      setSelected(null)
-      bump()
-    } catch (e) {
-      push(e instanceof Error ? e.message : t.common.error, 'error')
-    } finally {
-      setDeactivating(false)
-    }
-  }
 
   const searching = query.trim().length > 0
   const empty = (
@@ -174,18 +146,11 @@ export function CircuitExplorer() {
         title={t.circuits.circuitDetail}
         size="md"
         footer={
-          selected ? (
-            <div className="flex flex-wrap justify-end gap-2">
-              <Link to={`/modify?circuit=${selected.id}`} onClick={() => setSelected(null)}>
-                <Button variant="outline" size="sm" icon={<Pencil className="h-3.5 w-3.5" />}>
-                  {t.circuits.modify}
-                </Button>
-              </Link>
-              <Button variant="danger" size="sm" loading={deactivating} onClick={() => void requestDeactivation()}>
-                {t.circuits.deactivate}
-              </Button>
-            </div>
-          ) : null
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => setSelected(null)}>
+              {t.common.close}
+            </Button>
+          </div>
         }
       >
         {selected && maps ? (

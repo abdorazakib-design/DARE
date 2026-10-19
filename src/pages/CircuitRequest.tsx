@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, FileText, History, Inbox, Send, Wrench, XCircle } from 'lucide-react'
 import { useI18n } from '@/i18n'
 import { useData } from '@/data/DataProvider'
-import { createRequest, createWorkOrder, fetchCircuits, fetchRequests, provisionCircuitFromRequest, reserveCircuitRef, updateRequestDetails, updateRequestStatus } from '@/data/api'
+import { applyCapacityDelta, createRequest, createWorkOrder, createWorkOrderForRequest, fetchCapacity, fetchCircuits, fetchRequests, fetchWorkOrders, provisionCircuitFromRequest, remainingCapacity, reserveCircuitRef, updateRequestDetails, updateRequestStatus } from '@/data/api'
 import { buildCircuitRefPrefix, formatCircuitRef, isCompletePrefix, nextSequence } from '@/lib/circuitRef'
 import { resolveSessionUser } from '@/lib/sessionUser'
 import type { AppUser } from '@/lib/types'
-import type { Circuit, CircuitRequest } from '@/lib/types'
+import type { CapacityEntitlement, Circuit, CircuitRequest, WorkOrder } from '@/lib/types'
 import { Button, Card, EmptyState, PageHeader, Select, TextInput } from '@/components/ui/primitives'
 import { DataTable, type Column } from '@/components/ui/table'
 import { Modal, useToast } from '@/components/ui/feedback'
 import { ActivationRecap } from '@/components/ActivationRecap'
+import { WorkOrderDoc } from '@/components/WorkOrderDoc'
 import { StatusBadge } from '@/components/badges'
 import { fmtDate, fmtDateTime, todayISO } from '@/lib/utils'
 
@@ -68,10 +69,18 @@ export default function CircuitRequest() {
   const [showHistory, setShowHistory] = useState(false)
   /** End-of-process activation summary (print / email to the requester). */
   const [recap, setRecap] = useState<CircuitRequest | null>(null)
+  /** Work order document shown right after a WO is created from a request. */
+  const [woDoc, setWoDoc] = useState<{ wo: WorkOrder; request: CircuitRequest } | null>(null)
+  /** All work orders — used to detect an existing WO for a request. */
+  const [workOrders, setWorkOrders] = useState<WorkOrder[] | null>(null)
+  /** Capacity entitlements — activation submissions are validated against them. */
+  const [capacity, setCapacity] = useState<CapacityEntitlement[] | null>(null)
 
   useEffect(() => {
     fetchRequests().then(setRequests).catch((e: unknown) => push(e instanceof Error ? e.message : t.common.error, 'error'))
     fetchCircuits().then(setCircuits).catch(() => undefined)
+    fetchWorkOrders().then(setWorkOrders).catch(() => undefined)
+    fetchCapacity().then(setCapacity).catch(() => undefined)
     resolveSessionUser().then(setSessionUser).catch(() => undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version])
@@ -193,6 +202,68 @@ export default function CircuitRequest() {
     }
     setSubmitting(true)
     try {
+      // --- Activation: fully automatic decision based on remaining capacity ---
+      if (isActivation) {
+        // The circuit ID is reserved in every case — even rejected requests
+        // keep their ID for traceability (the number is never reused).
+        ref = await reserveCircuitRef(refPrefix)
+        const needed = (refs.bandwidths.find((b) => b.id === form.bandwidth_id)?.value_gbps ?? 0) * form.quantity
+        const remaining = capacity ? remainingCapacity(capacity, form.operator_id, form.station_a_id, form.station_b_id) : null
+        const hasCapacity = remaining === null || needed <= remaining
+        const approvedStatus = statusBy('approved')
+        const rejectedStatus = statusBy('rejected')
+
+        if (hasCapacity && approvedStatus) {
+          // AUTO-APPROVE: provision the circuit, sync counters, issue the WO.
+          details.approved_at = new Date().toISOString()
+          details.approved_by = sessionUser.full_name
+          const created = await createRequest({
+            request_type_id: type.id,
+            status_id: approvedStatus.id,
+            circuit_designation: designation,
+            circuit_ref: ref,
+            details,
+            requested_by: sessionUser.full_name,
+            requested_date: form.requested_date,
+          })
+          const active = refs.statuses.find((s) => s.code === 'active' && s.scope === 'circuit')
+          if (active) await provisionCircuitFromRequest(created, active.id).catch(() => null)
+          await applyCapacityDelta(form.operator_id, form.station_a_id, form.station_b_id, needed).catch(() => null)
+          const openWo = refs.statuses.find((s) => s.code === 'open' && s.scope === 'work_order')
+          const wo = openWo ? await createWorkOrderForRequest(created, openWo.id).catch(() => null) : null
+          push(t.request.autoApproved(wo?.number ?? '—'))
+          setForm({ ...initialForm, requested_date: todayISO() })
+          setShowHistory(true)
+          setRecap(created)
+          if (wo) setWoDoc({ wo, request: created })
+          bump()
+          return
+        }
+
+        if (!hasCapacity && rejectedStatus) {
+          // AUTO-REJECT: recorded with the reserved circuit ID + the reason.
+          details.rejection_reason = 'capacity'
+          details.rejection_needed_gbps = needed
+          details.rejection_remaining_gbps = remaining
+          const created = await createRequest({
+            request_type_id: type.id,
+            status_id: rejectedStatus.id,
+            circuit_designation: designation,
+            circuit_ref: ref,
+            details,
+            requested_by: sessionUser.full_name,
+            requested_date: form.requested_date,
+          })
+          push(t.request.autoRejected(needed, remaining ?? 0), 'error')
+          setForm({ ...initialForm, requested_date: todayISO() })
+          setShowHistory(true)
+          setRecap(created)
+          bump()
+          return
+        }
+        // Fallback (status rows missing): keep the manual pending flow below.
+      }
+
       if (isActivation) ref = await reserveCircuitRef(refPrefix)
       const created = await createRequest({
         request_type_id: type.id,
@@ -224,10 +295,31 @@ export default function CircuitRequest() {
     try {
       await updateRequestStatus(r.id, st.id)
       const updated: CircuitRequest = { ...r, status_id: st.id }
+      const firstApproval = statusCode === 'approved' && typeof r.details?.approved_at !== 'string'
       // Stamp the approval time once — the recap shows it as "Approval Date".
-      if (statusCode === 'approved' && typeof r.details?.approved_at !== 'string') {
-        updated.details = { ...r.details, approved_at: new Date().toISOString() }
+      if (firstApproval) {
+        updated.details = { ...r.details, approved_at: new Date().toISOString(), approved_by: sessionUser?.full_name ?? null }
         await updateRequestDetails(r.id, updated.details)
+      }
+      // Keep the capacity entitlement counters in sync (first approval only):
+      // activation → +bandwidth on the party's route, deactivation → −bandwidth.
+      if (firstApproval) {
+        const d = (r.details ?? {}) as Record<string, unknown>
+        const str = (k: string): string => (typeof d[k] === 'string' ? (d[k] as string) : '')
+        const qty = typeof d.quantity === 'number' ? d.quantity : Number(d.quantity ?? 1) || 1
+        const typeCode = maps?.requestTypeById.get(r.request_type_id)?.code
+        if (typeCode === 'activation') {
+          const bw = refs?.bandwidths.find((b) => b.id === str('bandwidth_id'))
+          if (bw && str('operator_id') && str('station_a_id') && str('station_b_id')) {
+            await applyCapacityDelta(str('operator_id'), str('station_a_id'), str('station_b_id'), bw.value_gbps * qty).catch(() => null)
+          }
+        } else if (typeCode === 'deactivation' && r.circuit_ref) {
+          const c = (circuits ?? []).find((x) => x.circuit_ref === r.circuit_ref)
+          const bw = c ? refs?.bandwidths.find((b) => b.id === c.bandwidth_id) : undefined
+          if (c && bw) {
+            await applyCapacityDelta(c.operator_id, c.station_a_id, c.station_b_id, -(bw.value_gbps * c.quantity)).catch(() => null)
+          }
+        }
       }
       // Approving (or completing) a "New Circuit Activation" request provisions
       // the real circuit so it appears in the Circuit List.
@@ -253,13 +345,28 @@ export default function CircuitRequest() {
 
   const createWO = async (r: CircuitRequest) => {
     if (!refs) return
+    // A WO already exists for this request → just reopen its document.
+    const existingWo = (workOrders ?? []).find((w) => w.request_id === r.id)
+    if (existingWo) {
+      setWoDoc({ wo: existingWo, request: r })
+      return
+    }
     const open = refs.statuses.find((s) => s.code === 'open' && s.scope === 'work_order')
     if (!open) return
     setActing(true)
     try {
-      const number = `WO-${new Date().getFullYear()}-${String((requests?.length ?? 0) + 1).padStart(3, '0')}`
-      await createWorkOrder({ number, request_id: r.id, status_id: open.id, assigned_to: null })
+      // Reference format follows the operator standard: WO + 7 digits (e.g. WO0000128).
+      const existing = await fetchWorkOrders()
+      const maxSeq = existing.reduce((m, w) => {
+        const match = /(\d+)$/.exec(w.number)
+        return match ? Math.max(m, Number(match[1])) : m
+      }, 0)
+      const number = `WO${String(maxSeq + 1).padStart(7, '0')}`
+      const wo = await createWorkOrder({ number, request_id: r.id, status_id: open.id, assigned_to: null })
       push(t.request.workOrderCreated(number))
+      // Open the work order document (print / email to the requester).
+      setWoDoc({ wo, request: r })
+      setWorkOrders([wo, ...existing])
       bump()
     } catch (e) {
       push(e instanceof Error ? e.message : t.common.error, 'error')
@@ -327,6 +434,16 @@ export default function CircuitRequest() {
 
   const selectedStatus = selected ? maps?.statusById.get(selected.status_id)?.code : undefined
   const canDecide = selectedStatus === 'pending' || selectedStatus === 'in-review'
+
+  /**
+   * History view: completed requests are final — they drop out of the list
+   * (still reachable in the Circuit List). Everything else stays visible.
+   */
+  const historyRequests = useMemo(
+    () => (requests ?? []).filter((r) => maps?.statusById.get(r.status_id)?.code !== 'completed'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [requests, maps],
+  )
 
   return (
     <div>
@@ -441,7 +558,7 @@ export default function CircuitRequest() {
           <Card title={t.request.history} className="xl:col-span-3">
             <DataTable
               columns={columns}
-              rows={requests ?? []}
+              rows={historyRequests}
               loading={requests === null}
               empty={<EmptyState icon={<Inbox className="h-6 w-6" />} title={t.request.emptyHistory} hint={t.request.emptyHint} />}
               onRowClick={setSelected}
@@ -478,9 +595,20 @@ export default function CircuitRequest() {
               ) : null}
               {selectedStatus === 'approved' ? (
                 <>
-                  <Button variant="outline" size="sm" loading={acting} icon={<Wrench className="h-3.5 w-3.5" />} onClick={() => void createWO(selected)}>
-                    {t.request.createWorkOrder}
-                  </Button>
+                  {workOrders?.some((w) => w.request_id === selected.id) ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      icon={<FileText className="h-3.5 w-3.5" />}
+                      onClick={() => void createWO(selected)}
+                    >
+                      {t.request.viewWorkOrder}
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm" loading={acting} icon={<Wrench className="h-3.5 w-3.5" />} onClick={() => void createWO(selected)}>
+                      {t.request.createWorkOrder}
+                    </Button>
+                  )}
                   <Button variant="primary" size="sm" loading={acting} onClick={() => void setStatus(selected, 'completed')}>
                     {t.request.complete}
                   </Button>
@@ -531,6 +659,13 @@ export default function CircuitRequest() {
       </Modal>
 
       <ActivationRecap request={recap} onClose={() => setRecap(null)} />
+
+      <WorkOrderDoc
+        workOrder={woDoc?.wo ?? null}
+        request={woDoc?.request ?? null}
+        approvedBy={sessionUser?.full_name ?? '—'}
+        onClose={() => setWoDoc(null)}
+      />
     </div>
   )
 

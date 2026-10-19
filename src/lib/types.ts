@@ -127,6 +127,41 @@ export interface AppUser {
   created_at: string
 }
 
+/**
+ * Capacity entitlement for a party (operator) on a route + fiber pair,
+ * seeded from the operator's capacity spreadsheet and kept in sync by the
+ * app (activation → provisioned+, deactivation → provisioned−).
+ */
+export interface CapacityEntitlement {
+  id: string
+  operator_id: string
+  party_code: string | null
+  station_a_id: string
+  station_b_id: string
+  fp_pair: string
+  dls_number: number | null
+  entitlement_gbps: number
+  day1_10g_gbps: number
+  day1_100g_gbps: number
+  provisioned_10g_gbps: number
+  provisioned_100g_gbps: number
+  created_at: string
+}
+
+export interface CapacityEntitlementInput {
+  operator_id: string
+  party_code?: string | null
+  station_a_id: string
+  station_b_id: string
+  fp_pair: string
+  dls_number?: number | null
+  entitlement_gbps: number
+  day1_10g_gbps: number
+  day1_100g_gbps: number
+  provisioned_10g_gbps: number
+  provisioned_100g_gbps: number
+}
+
 export interface MaintenanceEvent {
   id: string
   title: string

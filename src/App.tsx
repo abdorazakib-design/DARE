@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
 import Dashboard from './pages/Dashboard'
+import Capacity from './pages/Capacity'
 import MuxPlan from './pages/MuxPlan'
 import CircuitSearch from './pages/CircuitSearch'
 import CircuitRequest from './pages/CircuitRequest'
@@ -19,6 +20,7 @@ export function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
+        <Route path="capacity" element={<Capacity />} />
         <Route path="mux" element={<MuxPlan />} />
         <Route path="circuits" element={<CircuitSearch />} />
         <Route path="request" element={<CircuitRequest />} />

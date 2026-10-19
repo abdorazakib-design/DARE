@@ -389,4 +389,64 @@ $$;
 
 grant execute on function next_circuit_ref(text) to anon, authenticated;
 
+-- ------------------------------------------------------------------------------
+-- Capacity entitlements (per operator / route / fiber pair)
+-- Source of truth for how much submarine capacity each party is entitled to,
+-- what was planned at day-1 and what is actually provisioned. Seeded from the
+-- operator's capacity spreadsheet; kept in sync by the app:
+--   - approving a "New Circuit Activation"  → increments provisioned_*
+--   - approving a "Deactivation"            → decrements provisioned_*
+--   - Circuit Request submissions are validated against the remaining capacity
+--     (entitled − provisioned) for the (operator, route) pair.
+-- ------------------------------------------------------------------------------
+create table if not exists capacity_entitlements (
+  id                   uuid primary key default gen_random_uuid(),
+  operator_id          uuid not null references operators(id) on delete cascade,
+  party_code           text,                                    -- DJB / SOM / HOR
+  station_a_id         uuid not null references landing_stations(id) on delete cascade,
+  station_b_id         uuid not null references landing_stations(id) on delete cascade,
+  fp_pair              text not null,                           -- FP1 / FP2
+  dls_number           int,                                     -- DLS section (when known)
+  entitlement_gbps     numeric not null default 0,              -- entitled capacity
+  day1_10g_gbps        numeric not null default 0,              -- day-1 plan, 10G slice
+  day1_100g_gbps       numeric not null default 0,              -- day-1 plan, 100G slice
+  provisioned_10g_gbps numeric not null default 0,              -- actually delivered, 10G
+  provisioned_100g_gbps numeric not null default 0,             -- actually delivered, 100G
+  created_at           timestamptz not null default now(),
+  unique (operator_id, station_a_id, station_b_id, fp_pair)
+);
+
+alter table capacity_entitlements enable row level security;
+create policy "anon all" on capacity_entitlements for all to anon using (true) with check (true);
+
+-- Seed from capacity.xlsx (normalized: operator + station codes resolved against
+-- the operators / landing_stations tables; idempotent via ON CONFLICT DO NOTHING).
+insert into capacity_entitlements
+  (operator_id, party_code, station_a_id, station_b_id, fp_pair, dls_number,
+   entitlement_gbps, day1_10g_gbps, day1_100g_gbps, provisioned_10g_gbps, provisioned_100g_gbps)
+select o.id, v.party, sa.id, sb.id, v.fp, v.dls, v.ent, v.d10, v.d100, v.p10, v.p100
+from (values
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','MOMBASA','FP1',   1,  8000, 300, 2000, 150, 1000),
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','MOMBASA','FP2',   2, 12000, 300, 2000, 150, 1000),
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','BOSASO', 'FP1', null,   60,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','DJIBOUTI','BOSASO', 'FP1', null,  300, 100,    0,  50,    0),
+  ('HORMUUD',         'HOR','DJIBOUTI','BOSASO', 'FP1', null,  240, 200,    0, 100,    0),
+  ('DJIBOUTI TELECOM','DJB','MOMBASA', 'BOSASO', 'FP2', null,   60,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','MOMBASA', 'BOSASO', 'FP2', null,  300, 100,    0,  50,    0),
+  ('HORMUUD',         'HOR','MOMBASA', 'BOSASO', 'FP2', null,  240, 200,    0, 100,    0),
+  ('DJIBOUTI TELECOM','DJB','DJIBOUTI','MOGADISHU','FP1', null, 120,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','DJIBOUTI','MOGADISHU','FP1', null, 600, 100,    0, 100,    0),
+  ('HORMUUD',         'HOR','DJIBOUTI','MOGADISHU','FP1', null, 480, 200,    0, 200,    0),
+  ('DJIBOUTI TELECOM','DJB','MOMBASA', 'MOGADISHU','FP2', null, 180,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','MOMBASA', 'MOGADISHU','FP2', null, 900, 100,    0,  50,    0),
+  ('HORMUUD',         'HOR','MOMBASA', 'MOGADISHU','FP2', null, 720,   0,  300,   0,  300),
+  ('DJIBOUTI TELECOM','DJB','BOSASO',  'MOGADISHU','FP2', null,   0,   0,    0,   0,    0),
+  ('SOMTEL',          'SOM','BOSASO',  'MOGADISHU','FP2', null, 200,   0,    0, 100,    0),
+  ('HORMUUD',         'HOR','BOSASO',  'MOGADISHU','FP2', null, 200, 200,    0,  50,    0)
+) as v(op, party, sta, stb, fp, dls, ent, d10, d100, p10, p100)
+join operators o          on o.code  = v.op
+join landing_stations sa  on sa.code = v.sta
+join landing_stations sb  on sb.code = v.stb
+on conflict (operator_id, station_a_id, station_b_id, fp_pair) do nothing;
+
 -- Done ✅
