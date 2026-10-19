@@ -158,6 +158,7 @@ create table project_phases (
   end_date    date
 );
 insert into operators (id, code, name) values
+  
   ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOM', 'SOMTEL'),
   ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HOR', 'HORMUUD'),
   ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJB', 'DJIBOUTI TELECOM');
