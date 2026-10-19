@@ -158,10 +158,10 @@ create table project_phases (
   end_date    date
 );
 insert into operators (id, code, name) values
-  ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOMTEL', 'SOMTEL'),
-  ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HORMUUD', 'HORMUUD'),
-  ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJIBOUTI TELECOM', 'DJIBOUTI TELECOM'),
-  ('b5636561-4bf0-4608-a829-878a6c209d3f', 'TELESOM', 'TELESOM');
+  ('b84701eb-4a3a-4850-86c7-8c7d3746f01f', 'SOM', 'SOMTEL'),
+  ('b42a425a-a29c-4fc3-87fa-b0348933ed49', 'HOR', 'HORMUUD'),
+  ('2fd2bde2-580f-4910-a07f-edef7c324e9d', 'DJIB', 'DJIBOUTI TELECOM');
+  
 
 insert into landing_stations (id, code, name, country, x, y) values
   ('64db723f-b9d0-49f1-9d6d-a7ec17698950', 'DJIBOUTI', 'DJIBOUTI', 'Djibouti', 120, 84),
@@ -222,10 +222,10 @@ insert into document_categories (id, code, label_en, label_fr) values
   ('bc0b05d0-215c-4fb7-9d39-0945039afa94', 'sla', 'SLA', 'SLA');
 
 insert into backhaul_providers (id, name, contact_email, phone) values
-  ('378b60bd-a209-44e2-9cf9-a1a5e35e9b51', 'Djibouti Telecom Backhaul', 'backhaul@djiboutitelecom.example', '+253 21 35 20 01'),
-  ('c930b4ae-9135-4c21-a50e-713e6b91a87f', 'Somtel Fiber Services', 'fiber@somtel.example', '+252 63 442 0099'),
-  ('a6082927-2089-4797-8f32-59bd22b14cd3', 'Hormuud Carrier Division', 'carrier@hormuud.example', '+252 61 300 1200'),
-  ('f43d0dce-b22d-4e8b-b4bc-d78ce1a8673c', 'Global Carrier Services', 'noc@gcs.example', '+971 4 555 0134');
+  ('378b60bd-a209-44e2-9cf9-a1a5e35e9b51', 'Djibouti Telecom ', 'backhaul@djiboutitelecom.example', '+253 21 35 20 01'),
+  ('c930b4ae-9135-4c21-a50e-713e6b91a87f', 'Somtel', 'fiber@somtel.example', '+252 63 442 0099'),
+  ('a6082927-2089-4797-8f32-59bd22b14cd3', 'Hormuud ', 'carrier@hormuud.example', '+252 61 300 1200'),
+  ('f43d0dce-b22d-4e8b-b4bc-d78ce1a8673c', 'Telkom Kenya', 'noc@gcs.example', '+971 4 555 0134');
 insert into circuits (id, designation, circuit_ref, operator_id, station_a_id, station_b_id, bandwidth_id, interface_type_id, quantity, restoration_type_id, status_id, requested_by, activated_at, created_at) values
   ('118f7c98-aa14-48fd-9d9d-b41f70f4a9a9', 'CKTI-001', 'SOM-SRT-001', 'b84701eb-4a3a-4850-86c7-8c7d3746f01f', '64db723f-b9d0-49f1-9d6d-a7ec17698950', 'f6116f62-83ef-4798-b082-f51cbe2f972e', '20b052c4-5b1c-4264-8068-494dd4e4b484', '09d97aaf-f4ce-4f4a-baeb-f5c42559e20d', 1, '13160d05-5f16-41ed-8ed7-b96529da62da', '93725c0b-486f-49fb-a00d-63893691ba70', 'A. Hosman', '2025-11-10', '2025-11-08T09:12:00Z'),
   ('86365ce9-d894-4139-9ca3-91e964e2ccb6', 'CKTI-002', 'HORM-MG-001', 'b42a425a-a29c-4fc3-87fa-b0348933ed49', 'f6116f62-83ef-4798-b082-f51cbe2f972e', 'e4f8e690-272b-470f-a43a-ba7720b535c7', '3464f64f-4b8b-4903-9292-2222b80cb6ac', '082a5300-6ddb-47b3-8a5e-2a74e2fae69d', 2, '13160d05-5f16-41ed-8ed7-b96529da62da', '93725c0b-486f-49fb-a00d-63893691ba70', 'N. Farah', '2025-09-22', '2025-09-20T14:03:00Z'),
